@@ -15,5 +15,7 @@ int main(int argc, const char** argv){
 	bro::File exe(bro.exe);
 	bro.log.info("Exe file: {}", exe);
 
+	bro.log.info("Fresh: {}", bro.isFresh());
+
 	return 0;
 }

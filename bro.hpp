@@ -54,6 +54,8 @@ namespace bro{
 		std::filesystem::path path;
 		std::filesystem::file_time_type time;
 
+		File() = default;
+
 		File(std::filesystem::path p):
 			path{p}, time{std::filesystem::last_write_time(p)}
 		{}
@@ -69,8 +71,8 @@ namespace bro{
 
 	struct Bro{
 		Log log;
-		std::filesystem::path src;
-		std::filesystem::path exe;
+		File src;
+		File exe;
 		std::vector<std::string_view> args;
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -87,6 +89,10 @@ namespace bro{
 			exe{argv[0]},
 			args{argv + 1, argv + argc}
 		{}
+
+		inline bool isFresh(){
+			return !(src > exe);
+		}
 	};
 
 	template<typename CharT, typename Traits>
