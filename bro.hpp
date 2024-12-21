@@ -4,7 +4,7 @@
 #include <string_view>
 
 namespace bro{
-	struct Bro{
+	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
 			out << fmt;
 		}
@@ -25,10 +25,28 @@ namespace bro{
 		}
 
 		template<typename... Args>
-		inline void logError(std::string_view fmt, Args... args){
+		inline void error(std::string_view fmt, Args... args){
 			std::cerr << "BRO ERROR: ";
 			format(std::cerr, fmt, args...);
 			std::cerr << std::endl;
 		}
+
+		template<typename... Args>
+		inline void warning(std::string_view fmt, Args... args){
+			std::cerr << "BRO WARNING: ";
+			format(std::cerr, fmt, args...);
+			std::cerr << std::endl;
+		}
+
+		template<typename... Args>
+		inline void info(std::string_view fmt, Args... args){
+			std::cerr << "BRO INFO: ";
+			format(std::cerr, fmt, args...);
+			std::cerr << std::endl;
+		}
+	};
+
+	struct Bro{
+		Log log;
 	};
 }
