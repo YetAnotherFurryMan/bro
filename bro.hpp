@@ -1,6 +1,8 @@
 #pragma once
 
+#include <vector>
 #include <iostream>
+#include <filesystem>
 #include <string_view>
 
 namespace bro{
@@ -47,7 +49,45 @@ namespace bro{
 		}
 	};
 
+	struct File{
+		std::filesystem::path path;
+		std::filesystem::file_time_type time;
+
+		File(std::filesystem::path p):
+			path{p}, time{std::filesystem::last_write_time(p)}
+		{}
+
+		inline bool operator>(const File& f){
+			return this->time > f.time;
+		}
+
+		inline bool operator<(const File& f){
+			return this->time < f.time;
+		}
+	};
+
 	struct Bro{
 		Log log;
+		std::filesystem::path exe;
+		std::vector<std::string_view> args;
+
+		Bro() = default;
+		
+		Bro(std::filesystem::path p):
+			exe{p}
+		{}
+		
+		Bro(int argc, const char** argv):
+			exe{argv[0]},
+			args{argv + 1, argv + argc}
+		{}
 	};
+
+	template<typename CharT, typename Traits>
+	inline std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& out, const File& file){
+		auto time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(file.time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+		std::time_t tt = std::chrono::system_clock::to_time_t(time);
+		std::tm* tm = std::localtime(&tt);
+		return out << "bro::File{'path': " << file.path << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+	}
 }
