@@ -25,24 +25,25 @@ namespace bro{
 		}
 
 		template<typename... Args>
-		inline void error(std::string_view fmt, Args... args){
-			std::cerr << "BRO ERROR: ";
+		inline void log(std::string_view prefix, std::string_view fmt, Args... args){
+			std::cerr << prefix << ": ";
 			format(std::cerr, fmt, args...);
 			std::cerr << std::endl;
 		}
 
 		template<typename... Args>
-		inline void warning(std::string_view fmt, Args... args){
-			std::cerr << "BRO WARNING: ";
-			format(std::cerr, fmt, args...);
-			std::cerr << std::endl;
+		inline auto error(std::string_view fmt, Args&&... args) -> decltype(log<Args...>("ERROR", fmt, std::forward<Args>(args)...)){
+			return log<Args...>("ERROR", fmt, std::forward<Args>(args)...);
 		}
 
 		template<typename... Args>
-		inline void info(std::string_view fmt, Args... args){
-			std::cerr << "BRO INFO: ";
-			format(std::cerr, fmt, args...);
-			std::cerr << std::endl;
+		inline auto warning(std::string_view fmt, Args&&... args) -> decltype(log<Args...>("WARNING", fmt, std::forward<Args>(args)...)){
+			return log<Args...>("WARNING", fmt, std::forward<Args>(args)...);
+		}
+
+		template<typename... Args>
+		inline auto info(std::string_view fmt, Args&&... args) -> decltype(log<Args...>("INFO", fmt, std::forward<Args>(args)...)){
+			return log<Args...>("INFO", fmt, std::forward<Args>(args)...);
 		}
 	};
 
