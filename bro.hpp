@@ -4,6 +4,7 @@
 #include <iostream>
 #include <filesystem>
 #include <string_view>
+#include <source_location>
 
 namespace bro{
 	struct Log{
@@ -68,16 +69,21 @@ namespace bro{
 
 	struct Bro{
 		Log log;
+		std::filesystem::path src;
 		std::filesystem::path exe;
 		std::vector<std::string_view> args;
 
-		Bro() = default;
+		Bro(std::filesystem::path src = __builtin_FILE()):
+			src{src}
+		{}
 		
-		Bro(std::filesystem::path p):
+		Bro(std::filesystem::path p, std::filesystem::path src = __builtin_FILE()):
+			src{src},
 			exe{p}
 		{}
 		
-		Bro(int argc, const char** argv):
+		Bro(int argc, const char** argv, std::filesystem::path src = __builtin_FILE()):
+			src{src},
 			exe{argv[0]},
 			args{argv + 1, argv + argc}
 		{}
