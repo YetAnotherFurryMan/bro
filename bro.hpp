@@ -1,6 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <sstream>
+#include <iomanip>
 #include <iostream>
 #include <filesystem>
 #include <string_view>
@@ -48,6 +50,10 @@ namespace bro{
 		inline auto info(std::string_view fmt, Args&&... args) -> decltype(log<Args...>("INFO", fmt, std::forward<Args>(args)...)){
 			return log<Args...>("INFO", fmt, std::forward<Args>(args)...);
 		}
+
+		inline void cmd(std::string_view cmd){
+			log("CMD", "{}", cmd);
+		}
 	};
 
 	struct File{
@@ -66,6 +72,25 @@ namespace bro{
 
 		inline bool operator<(const File& f){
 			return this->time < f.time;
+		}
+	};
+
+	struct Cmd{
+		std::string name;
+		std::vector<std::string> cmd;
+		
+		Cmd(std::string_view name, std::string* cmd, std::size_t cmd_size):
+			name{name}, cmd{cmd, cmd + cmd_size}
+		{}
+
+		int runSync(Log& log){
+			std::stringstream ss;
+			for(const auto& e: cmd){
+				ss << " " << std::quoted(e);
+			}
+			std::string line = ss.str().substr(1);
+			log.cmd(line);
+			return system(line.c_str());
 		}
 	};
 
