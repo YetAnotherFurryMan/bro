@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <future>
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -80,17 +81,33 @@ namespace bro{
 		std::vector<std::string> cmd;
 		
 		Cmd(std::string_view name, std::string* cmd, std::size_t cmd_size):
-			name{name}, cmd{cmd, cmd + cmd_size}
-		{}
+			name{name}/*, cmd{cmd, cmd + cmd_size}*/
+		{
+			for(size_t i = 0; i < cmd_size; i++)
+				this->cmd.push_back(cmd[i]);
+		}
 
-		int runSync(Log& log){
+		inline std::string str(){
 			std::stringstream ss;
 			for(const auto& e: cmd){
 				ss << " " << std::quoted(e);
 			}
-			std::string line = ss.str().substr(1);
+
+			return ss.str().substr(1);
+		}
+
+		int runSync(Log& log){
+			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
+		}
+
+		std::future<int> runAsync(Log& log){
+			std::string line = str();
+			log.cmd(line);
+			return std::async([](std::string line){
+				return system(line.c_str()); 
+			}, line);
 		}
 	};
 
