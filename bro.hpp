@@ -81,6 +81,18 @@ namespace bro{
 		inline bool operator<(const File& f){
 			return exists && f.exists && this->time < f.time;
 		}
+
+		inline int copy(Log& log, std::filesystem::path to){
+			std::error_code ec;
+			std::filesystem::copy(path, to, std::filesystem::copy_options::overwrite_existing, ec);
+			
+			if(ec){
+				log.error("Failed to copy from {} to {}: {}", path, to, ec);
+				return ec.value();
+			}
+
+			return 0;
+		}
 	};
 
 	struct Cmd{
@@ -141,6 +153,29 @@ namespace bro{
 
 		inline bool isFresh(){
 			return !(src > exe);
+		}
+
+		inline void fresh(){
+			if(!isFresh()){
+				int ret = 0;
+
+				// Save exe to .old
+				ret = exe.copy(log, exe.path.string() + ".old");
+				if(ret) std::exit(ret);
+				
+				// Recompile
+				std::string command[] = {"g++", "-o", exe.path, src.path};
+				Cmd cmd("fresh", command, 4);
+				if((ret = cmd.runSync(log))){
+					log.error("Failed to recompile source: '{}'", src);
+					std::exit(ret);
+				}
+
+				// Run
+				cmd.cmd.clear();
+				cmd.cmd.push_back(exe.path);
+				std::exit(cmd.runSync(log));
+			}
 		}
 	};
 

@@ -4,6 +4,8 @@
 
 int main(int argc, const char** argv){
 	bro::Bro bro(argc, argv);
+	bro.fresh();
+
 	bro.log.error("Hello {}!", "World");
 	bro.log.warning("Hello {}!", "World");
 	bro.log.info("Hello {}!", "World");
