@@ -143,18 +143,47 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return ss.str().substr(1);
 		}
 
-		int sync(Log& log){
+		inline int sync(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
-		std::future<int> async(Log& log){
+		inline std::future<int> async(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
 				return system(line.c_str()); 
 			}, line);
+		}
+	};
+
+	struct CmdPoolAsync: public std::vector<std::future<int>> {
+		inline int wait(){
+			int ret = 0;
+			for(auto& cmd: *this){
+				ret += cmd.get();
+			}
+			return ret;
+		}
+	};
+
+	struct CmdPool: public std::vector<Cmd> {
+		inline int sync(Log& log){
+			int ret = 0;
+			for(auto& cmd: *this){
+				ret = cmd.sync(log);
+				if(ret) return ret;
+			}
+			return 0;
+		}
+
+		inline CmdPoolAsync async(Log& log){
+			CmdPoolAsync pool;
+			for(auto& cmd: *this){
+				pool.push_back(cmd.async(log));
+			}
+			return pool;
 		}
 	};
 
