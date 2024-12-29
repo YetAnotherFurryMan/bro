@@ -196,8 +196,12 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return cmd;
 		}
 
-		inline Cmd compile(std::string_view in, std::string out){
-			return compile(in, &out, 1);
+		inline Cmd compile(std::string_view out, std::string in){
+			return compile(out, &in, 1);
+		}
+
+		inline Cmd compile(std::string in){
+			return compile("", &in, 1);
 		}
 		
 		inline int sync(Log& log, std::string_view out, std::string* in, std::size_t in_size){
@@ -208,12 +212,20 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return compile(out, &in, 1).sync(log);
 		}
 
+		inline int sync(Log& log, std::string in){
+			return compile("", &in, 1).sync(log);
+		}
+
 		inline std::future<int> async(Log& log, std::string_view out, std::string* in, std::size_t in_size){
 			return compile(out, in, in_size).async(log);
 		}
 
 		inline std::future<int> async(Log& log, std::string_view out, std::string in){
 			return compile(out, &in, 1).async(log);
+		}
+
+		inline std::future<int> async(Log& log, std::string in){
+			return compile("", &in, 1).async(log);
 		}
 	};
 

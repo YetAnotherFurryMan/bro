@@ -15,6 +15,9 @@ int main(int argc, const char** argv){
 	std::string link_cmd[] = {"g++", "$in", "-o", "$out"};
 	bro::CmdTmpl link("link", link_cmd, 4);
 
+	std::string run_cmd[] = {"./$in"};
+	bro::CmdTmpl run("run", run_cmd, 1);
+
 	std::string rm_cmd[] = {"rm", "-f", "$in", "$in.o", "$in.cpp"};
 	bro::CmdTmpl rm("rm", rm_cmd, 5);
 
@@ -51,12 +54,10 @@ int main(int argc, const char** argv){
 
 	for(int i = 0; i < 10; i++){
 		std::stringstream ss;
-		ss << "./hello";
+		ss << "hello";
 		ss << i;
-		std::string cs[] = {ss.str()};
 
-		bro::Cmd c("run", cs, 1);
-		pool.push_back(c);
+		pool.push_back(run.compile(ss.str()));
 	}
 
 	ret = pool.async(bro.log).wait();
@@ -69,7 +70,7 @@ int main(int argc, const char** argv){
 		ss << "hello";
 		ss << i;
 
-		pool.push_back(rm.compile("", ss.str()));
+		pool.push_back(rm.compile(ss.str()));
 	}
 
 	ret = pool.async(bro.log).wait();
