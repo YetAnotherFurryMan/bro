@@ -127,6 +127,10 @@ inline const std::string_view CXX_COMPILER_NAME =
 		std::string name;
 		std::vector<std::string> cmd;
 		
+		Cmd(std::string_view name):
+			name{name}
+		{}
+
 		Cmd(std::string_view name, std::string* cmd, std::size_t cmd_size):
 			name{name}
 		{
@@ -155,6 +159,61 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return std::async([](std::string line){
 				return system(line.c_str()); 
 			}, line);
+		}
+	};
+
+	struct CmdTmpl{
+		std::string name;
+		std::vector<std::string> cmd;
+		
+		CmdTmpl(std::string_view name, std::string* cmd, std::size_t cmd_size):
+			name{name}
+		{
+			for(size_t i = 0; i < cmd_size; i++)
+				this->cmd.push_back(cmd[i]);
+		}
+
+		inline Cmd compile(std::string_view out, std::string* in, std::size_t in_size){
+			Cmd cmd(name);
+
+			for(const auto& e: this->cmd){
+				std::size_t pos = 0;
+				if((pos = e.find("$in")) != std::string::npos){
+					for(std::size_t i = 0; i < in_size; i++){
+						std::string tmp = e;
+						tmp.replace(pos, 3, in[i]);
+						cmd.cmd.push_back(tmp);
+					}
+				} else if((pos = e.find("$out")) != std::string::npos){
+					std::string tmp = e;
+					tmp.replace(pos, 4, out);
+					cmd.cmd.push_back(tmp);
+				} else{
+					cmd.cmd.push_back(e);
+				}
+			}
+
+			return cmd;
+		}
+
+		inline Cmd compile(std::string_view in, std::string out){
+			return compile(in, &out, 1);
+		}
+		
+		inline int sync(Log& log, std::string_view out, std::string* in, std::size_t in_size){
+			return compile(out, in, in_size).sync(log);
+		}
+
+		inline int sync(Log& log, std::string_view out, std::string in){
+			return compile(out, &in, 1).sync(log);
+		}
+
+		inline std::future<int> async(Log& log, std::string_view out, std::string* in, std::size_t in_size){
+			return compile(out, in, in_size).async(log);
+		}
+
+		inline std::future<int> async(Log& log, std::string_view out, std::string in){
+			return compile(out, &in, 1).async(log);
 		}
 	};
 

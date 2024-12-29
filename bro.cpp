@@ -9,6 +9,15 @@ int main(int argc, const char** argv){
 	
 	bro.fresh();
 
+	std::string cxx_cmd[] = {"g++", "-c", "$in", "-o", "$out"};
+	bro::CmdTmpl cxx("cxx", cxx_cmd, 5);
+
+	std::string link_cmd[] = {"g++", "$in", "-o", "$out"};
+	bro::CmdTmpl link("link", link_cmd, 4);
+
+	std::string rm_cmd[] = {"rm", "-f", "$in", "$in.o", "$in.cpp"};
+	bro::CmdTmpl rm("rm", rm_cmd, 5);
+
 	bro::CmdPool pool;
 
 	for(int i = 0; i < 10; i++){
@@ -19,9 +28,7 @@ int main(int argc, const char** argv){
 		src << "#include <iostream>\nint main(){std::cout << \"Hello " << i << " World!\" << std::endl; return 0;}";
 		src.close();
 
-		std::string cs[] = {"g++", "-c", ss.str() + ".cpp", "-o", ss.str() + ".o"};
-		bro::Cmd c("cxx", cs, 5);
-		pool.push_back(c);
+		pool.push_back(cxx.compile(ss.str() + ".o", ss.str() + ".cpp"));
 	}
 
 	int ret = pool.async(bro.log).wait();
@@ -33,10 +40,8 @@ int main(int argc, const char** argv){
 		std::stringstream ss;
 		ss << "hello";
 		ss << i;
-		std::string cs[] = {"g++", ss.str() + ".o", "-o", ss.str()};
 
-		bro::Cmd c("link", cs, 4);
-		pool.push_back(c);
+		pool.push_back(link.compile(ss.str(), ss.str() + ".o"));
 	}
 
 	ret = pool.async(bro.log).wait();
@@ -56,6 +61,19 @@ int main(int argc, const char** argv){
 
 	ret = pool.async(bro.log).wait();
 	bro.log.info("Pool3: {}", ret);
+
+	pool.clear();
+
+	for(int i = 0; i < 10; i++){
+		std::stringstream ss;
+		ss << "hello";
+		ss << i;
+
+		pool.push_back(rm.compile("", ss.str()));
+	}
+
+	ret = pool.async(bro.log).wait();
+	bro.log.info("Pool4: {}", ret);
 
 	pool.clear();
 
