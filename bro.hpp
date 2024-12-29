@@ -58,21 +58,28 @@ namespace bro{
 	};
 
 	struct File{
+		bool exists;
 		std::filesystem::path path;
 		std::filesystem::file_time_type time;
 
 		File() = default;
 
 		File(std::filesystem::path p):
-			path{p}, time{std::filesystem::last_write_time(p)}
-		{}
+			path{p}
+		{
+			exists = std::filesystem::exists(p);
+
+			if(exists){
+				time = std::filesystem::last_write_time(p);
+			}
+		}
 
 		inline bool operator>(const File& f){
-			return this->time > f.time;
+			return exists && f.exists && this->time > f.time;
 		}
 
 		inline bool operator<(const File& f){
-			return this->time < f.time;
+			return exists && f.exists && this->time < f.time;
 		}
 	};
 
@@ -81,7 +88,7 @@ namespace bro{
 		std::vector<std::string> cmd;
 		
 		Cmd(std::string_view name, std::string* cmd, std::size_t cmd_size):
-			name{name}/*, cmd{cmd, cmd + cmd_size}*/
+			name{name}
 		{
 			for(size_t i = 0; i < cmd_size; i++)
 				this->cmd.push_back(cmd[i]);
@@ -142,6 +149,6 @@ namespace bro{
 		auto time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(file.time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
 		std::time_t tt = std::chrono::system_clock::to_time_t(time);
 		std::tm* tm = std::localtime(&tt);
-		return out << "bro::File{'path': " << file.path << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
 	}
 }
