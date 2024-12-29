@@ -4,40 +4,10 @@
 
 int main(int argc, const char** argv){
 	bro::Bro bro(argc, argv);
-	bro.fresh();
-
-	bro.log.error("Hello {}!", "World");
-	bro.log.warning("Hello {}!", "World");
-	bro.log.info("Hello {}!", "World");
-	bro.log.info("Src: {}", bro.src);
-	bro.log.info("Exe: {}", bro.exe);
-	bro.log.info("Argc: {}", bro.args.size());
-	bro.log.info("Src file: {}", bro.src);
-	bro.log.info("Exe file: {}", bro.exe);
-
+	
 	bro.log.info("Fresh: {}", bro.isFresh());
-
-	bro::File dne("this_file_do_not_exists.txt");
-	bro.log.info("Dne: {}", dne);
-
-	/* std::string cmdE[] = {"g++", bro.src.path.string(), "-o", bro.exe.path.string()}; */
-	/* bro::Cmd cmd("cxx", cmdE, 4); */
-	/* bro.log.info("Cmd name: {}", cmd.name); */
-	/* for(const auto& e: cmd.cmd){ */
-	/* 	bro.log.info("E:\t{}", e); */
-	/* } */
-
-	/* if(!bro.isFresh()){ */
-	/* 	bro.log.warning("Src is old, recompiling..."); */
-	/* 	if(cmd.runSync(bro.log) != 0){ */
-	/* 		bro.log.error("Failed to compile src {}", bro.src); */
-	/* 		return 1; */
-	/* 	} */
-		
-	/* 	std::string cmdRun[] = {bro.exe.path.string()}; */
-	/* 	bro::Cmd runCmd("run", cmdRun, 1); */
-	/* 	return runCmd.runSync(bro.log); */
-	/* } */
+	
+	bro.fresh();
 
 	/* std::vector<std::future<int>> cmds; */
 

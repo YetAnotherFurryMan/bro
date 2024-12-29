@@ -10,6 +10,22 @@
 #include <source_location>
 
 namespace bro{
+
+// Detect C++ compiler name
+inline const std::string_view CXX_COMPILER_NAME = 
+#if defined(__clang__)
+	"clang++"
+#elif defined(__GNUC__)
+	"g++"
+#elif defined(_MSC_VER)
+	"msvc"
+#elif defined(__BORLANDC__) || defined(__CODEGEARC__)
+	"bcc32"
+#else
+	"c++"
+#endif
+;
+
 	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
 			out << fmt;
@@ -93,6 +109,18 @@ namespace bro{
 
 			return 0;
 		}
+
+		inline int move(Log& log, std::filesystem::path to){
+			std::error_code ec;
+			std::filesystem::rename(path, to, ec);
+			
+			if(ec){
+				log.error("Failed to move from {} to {}: {}", path, to, ec);
+				return ec.value();
+			}
+
+			return 0;
+		}
 	};
 
 	struct Cmd{
@@ -115,13 +143,13 @@ namespace bro{
 			return ss.str().substr(1);
 		}
 
-		int runSync(Log& log){
+		int sync(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
-		std::future<int> runAsync(Log& log){
+		std::future<int> async(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
@@ -164,17 +192,17 @@ namespace bro{
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				std::string command[] = {"g++", "-o", exe.path, src.path};
+				std::string command[] = {std::string(CXX_COMPILER_NAME), "-o", exe.path, src.path};
 				Cmd cmd("fresh", command, 4);
-				if((ret = cmd.runSync(log))){
-					log.error("Failed to recompile source: '{}'", src);
+				if((ret = cmd.sync(log))){
+					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
 				}
 
 				// Run
 				cmd.cmd.clear();
 				cmd.cmd.push_back(exe.path);
-				std::exit(cmd.runSync(log));
+				std::exit(cmd.sync(log));
 			}
 		}
 	};
