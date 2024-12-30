@@ -123,7 +123,12 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 	};
 
-	struct Cmd{
+	struct Runnable{
+		inline virtual int sync(Log& log) = 0;
+		inline virtual std::future<int> async(Log& log) = 0;
+	};
+
+	struct Cmd: public Runnable{
 		std::string name;
 		std::vector<std::string> cmd;
 		
@@ -147,13 +152,13 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return ss.str().substr(1);
 		}
 
-		inline int sync(Log& log){
+		inline virtual int sync(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
-		inline std::future<int> async(Log& log){
+		inline virtual std::future<int> async(Log& log){
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
@@ -239,11 +244,11 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 	};
 
-	struct CmdPool: public std::vector<Cmd> {
+	struct CmdPool: public std::vector<std::unique_ptr<Runnable>> {
 		inline int sync(Log& log){
 			int ret = 0;
 			for(auto& cmd: *this){
-				ret = cmd.sync(log);
+				ret = cmd->sync(log);
 				if(ret) return ret;
 			}
 			return 0;
@@ -252,10 +257,53 @@ inline const std::string_view CXX_COMPILER_NAME =
 		inline CmdPoolAsync async(Log& log){
 			CmdPoolAsync pool;
 			for(auto& cmd: *this){
-				pool.push_back(cmd.async(log));
+				pool.push_back(cmd->async(log));
 			}
 			return pool;
 		}
+
+		template<typename T>
+		inline void push(const T& obj){
+			std::vector<std::unique_ptr<Runnable>>::push_back(std::make_unique<T>(obj));
+		}
+	};
+
+	struct CmdQueue: public std::vector<std::unique_ptr<Runnable>>, public Runnable {
+		inline virtual int sync(Log& log){
+			int ret = 0;
+			for(auto& cmd: *this){
+				ret = cmd->sync(log);
+				if(ret) return ret;
+			}
+			return 0;
+		}
+
+		inline virtual std::future<int> async(Log& log){
+			return std::async([](Log* log, CmdQueue* q){
+				return q->sync(*log);
+			}, &log, this);
+		}
+
+		template<typename T>
+		inline void push(const T& obj){
+			std::vector<std::unique_ptr<Runnable>>::push_back(std::make_unique<T>(obj));
+		}
+	};
+
+	enum class ModType{
+		LIB,
+		DLL,
+		EXE
+	};
+
+	struct Mod{
+		ModType type;
+		std::string_view name;
+
+		Mod(ModType type, std::string_view name):
+			type{type},
+			name{name}
+		{}
 	};
 
 	struct Bro{

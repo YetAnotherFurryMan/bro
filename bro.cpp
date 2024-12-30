@@ -27,56 +27,75 @@ int main(int argc, const char** argv){
 		std::stringstream ss;
 		ss << "hello";
 		ss << i;
+
 		std::ofstream src(ss.str() + ".cpp");
 		src << "#include <iostream>\nint main(){std::cout << \"Hello " << i << " World!\" << std::endl; return 0;}";
 		src.close();
 
-		pool.push_back(cxx.compile(ss.str() + ".o", ss.str() + ".cpp"));
+		std::unique_ptr<bro::CmdQueue> q = std::make_unique<bro::CmdQueue>();
+		q->push(cxx.compile(ss.str() + ".o", ss.str() + ".cpp"));
+		q->push(link.compile(ss.str(), ss.str() + ".cpp"));
+		q->push(run.compile(ss.str()));
+		q->push(rm.compile(ss.str()));
+		pool.push_back(std::move(q));
 	}
 
-	int ret = pool.async(bro.log).wait();
-	bro.log.info("Pool1: {}", ret);
+	bro.log.info("Pool: {}", pool.async(bro.log).wait());
 
-	pool.clear();
+	/* for(int i = 0; i < 10; i++){ */
+	/* 	std::stringstream ss; */
+	/* 	ss << "hello"; */
+	/* 	ss << i; */
+	/* 	std::ofstream src(ss.str() + ".cpp"); */
+	/* 	src << "#include <iostream>\nint main(){std::cout << \"Hello " << i << " World!\" << std::endl; return 0;}"; */
+	/* 	src.close(); */
 
-	for(int i = 0; i < 10; i++){
-		std::stringstream ss;
-		ss << "hello";
-		ss << i;
+	/* 	pool.push(cxx.compile(ss.str() + ".o", ss.str() + ".cpp")); */
+	/* } */
 
-		pool.push_back(link.compile(ss.str(), ss.str() + ".o"));
-	}
+	/* int ret = pool.async(bro.log).wait(); */
+	/* bro.log.info("Pool1: {}", ret); */
 
-	ret = pool.async(bro.log).wait();
-	bro.log.info("Pool2: {}", ret);
+	/* pool.clear(); */
 
-	pool.clear();
+	/* for(int i = 0; i < 10; i++){ */
+	/* 	std::stringstream ss; */
+	/* 	ss << "hello"; */
+	/* 	ss << i; */
 
-	for(int i = 0; i < 10; i++){
-		std::stringstream ss;
-		ss << "hello";
-		ss << i;
+	/* 	pool.push(link.compile(ss.str(), ss.str() + ".o")); */
+	/* } */
 
-		pool.push_back(run.compile(ss.str()));
-	}
+	/* ret = pool.async(bro.log).wait(); */
+	/* bro.log.info("Pool2: {}", ret); */
 
-	ret = pool.async(bro.log).wait();
-	bro.log.info("Pool3: {}", ret);
+	/* pool.clear(); */
 
-	pool.clear();
+	/* for(int i = 0; i < 10; i++){ */
+	/* 	std::stringstream ss; */
+	/* 	ss << "hello"; */
+	/* 	ss << i; */
 
-	for(int i = 0; i < 10; i++){
-		std::stringstream ss;
-		ss << "hello";
-		ss << i;
+	/* 	pool.push(run.compile(ss.str())); */
+	/* } */
 
-		pool.push_back(rm.compile(ss.str()));
-	}
+	/* ret = pool.async(bro.log).wait(); */
+	/* bro.log.info("Pool3: {}", ret); */
 
-	ret = pool.async(bro.log).wait();
-	bro.log.info("Pool4: {}", ret);
+	/* pool.clear(); */
 
-	pool.clear();
+	/* for(int i = 0; i < 10; i++){ */
+	/* 	std::stringstream ss; */
+	/* 	ss << "hello"; */
+	/* 	ss << i; */
+
+	/* 	pool.push(rm.compile(ss.str())); */
+	/* } */
+
+	/* ret = pool.async(bro.log).wait(); */
+	/* bro.log.info("Pool4: {}", ret); */
+
+	/* pool.clear(); */
 
 	return 0;
 }
