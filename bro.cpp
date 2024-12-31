@@ -42,5 +42,19 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Pool: {}", pool.async(bro.log).wait());
 
+	std::filesystem::create_directories("mod/a/a");
+	std::filesystem::create_directories("mod/a/b");
+	std::filesystem::create_directories("mod/a/c");
+	std::filesystem::create_directories("mod/b/a");
+	std::filesystem::create_directories("mod/b/b");
+	std::filesystem::create_directories("mod/b/c");
+
+	bro::Directory mod("mod");
+
+	bro.log.info("Copy tree: {}", mod.copyTree(bro.log, "build/obj"));
+
+	std::filesystem::remove_all("mod");
+	std::filesystem::remove_all("build");
+
 	return 0;
 }

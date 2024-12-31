@@ -74,7 +74,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 	};
 
 	struct File{
-		bool exists;
+		bool exists = false;
 		std::filesystem::path path;
 		std::filesystem::file_time_type time;
 
@@ -123,6 +123,35 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 	};
 
+	struct Directory: public File{
+		Directory(std::filesystem::path p): File{p} {}
+
+		inline int copyTree(Log& log, std::filesystem::path p){
+			std::error_code ec;
+
+			std::filesystem::create_directories(p, ec);
+
+			if(ec){
+				log.error("Failed to create directory {}: {}", p, ec);
+				return ec.value();
+			}
+
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+				if(std::filesystem::is_directory(e.status())){
+					std::filesystem::path p2 = p / std::filesystem::relative(e.path(), path);
+					std::filesystem::create_directory(p2, ec);
+
+					if(ec){
+						log.error("Failed to create directory {}: {}", p2, ec);
+						return ec.value();
+					}
+				}
+			}
+
+			return 0;
+		}
+	};
+
 	struct Runnable{
 		inline virtual int sync(Log& log) = 0;
 		inline virtual std::future<int> async(Log& log) = 0;
@@ -147,13 +176,13 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return ss.str().substr(1);
 		}
 
-		inline virtual int sync(Log& log){
+		inline int sync(Log& log) override {
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
-		inline virtual std::future<int> async(Log& log){
+		inline std::future<int> async(Log& log) override {
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
@@ -262,7 +291,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 	};
 
 	struct CmdQueue: public std::vector<std::unique_ptr<Runnable>>, public Runnable {
-		inline virtual int sync(Log& log){
+		inline int sync(Log& log) override {
 			int ret = 0;
 			for(auto& cmd: *this){
 				ret = cmd->sync(log);
@@ -271,7 +300,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return 0;
 		}
 
-		inline virtual std::future<int> async(Log& log){
+		inline std::future<int> async(Log& log) override {
 			return std::async([](Log* log, CmdQueue* q){
 				return q->sync(*log);
 			}, &log, this);
