@@ -129,15 +129,10 @@ inline const std::string_view CXX_COMPILER_NAME =
 	};
 
 	struct Cmd: public Runnable{
-		std::string name;
 		std::vector<std::string> cmd;
 		
-		Cmd(std::string_view name):
-			name{name}
-		{}
-
-		Cmd(std::string_view name, std::string* cmd, std::size_t cmd_size):
-			name{name}
+		Cmd() = default;
+		Cmd(std::string* cmd, std::size_t cmd_size)
 		{
 			for(size_t i = 0; i < cmd_size; i++)
 				this->cmd.push_back(cmd[i]);
@@ -168,18 +163,16 @@ inline const std::string_view CXX_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
-		std::string name;
 		std::vector<std::string> cmd;
 		
-		CmdTmpl(std::string_view name, std::string* cmd, std::size_t cmd_size):
-			name{name}
+		CmdTmpl(std::string* cmd, std::size_t cmd_size)
 		{
 			for(size_t i = 0; i < cmd_size; i++)
 				this->cmd.push_back(cmd[i]);
 		}
 
 		inline Cmd compile(std::string_view out, std::string* in, std::size_t in_size){
-			Cmd cmd(name);
+			Cmd cmd;
 
 			for(const auto& e: this->cmd){
 				std::size_t pos = 0;
@@ -290,22 +283,6 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 	};
 
-	enum class ModType{
-		LIB,
-		DLL,
-		EXE
-	};
-
-	struct Mod{
-		ModType type;
-		std::string_view name;
-
-		Mod(ModType type, std::string_view name):
-			type{type},
-			name{name}
-		{}
-	};
-
 	struct Bro{
 		Log log;
 		File src;
@@ -341,7 +318,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 				
 				// Recompile
 				std::string command[] = {std::string(CXX_COMPILER_NAME), "-o", exe.path, src.path};
-				Cmd cmd("fresh", command, 4);
+				Cmd cmd(command, 4);
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
