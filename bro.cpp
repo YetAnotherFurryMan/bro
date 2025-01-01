@@ -9,52 +9,139 @@ int main(int argc, const char** argv){
 	
 	bro.fresh();
 
-	std::string cxx_cmd[] = {"g++", "-c", "$in", "-o", "$out"};
-	bro::CmdTmpl cxx(cxx_cmd, 5);
+	std::string cmd_cxx[] = {"g++", "-c", "$in", "-o", "$out"};
+	bro::CmdTmpl cxx(cmd_cxx, 5);
 
-	std::string link_cmd[] = {"g++", "$in", "-o", "$out"};
-	bro::CmdTmpl link(link_cmd, 4);
+	bro.registerCmd("g++", ".cpp", cmd_cxx, 5);
 
-	std::string run_cmd[] = {"./$in"};
-	bro::CmdTmpl run(run_cmd, 1);
+	std::string cmd_exe[] = {"g++", "$in", "-o", "$out"};
+	bro::CmdTmpl exe(cmd_exe, 4);
 
-	std::string rm_cmd[] = {"rm", "-f", "$in", "$in.o", "$in.cpp"};
-	bro::CmdTmpl rm(rm_cmd, 5);
+	std::string cmd_run[] = {"./$in"};
+	bro::CmdTmpl run(cmd_run, 1);
 
-	bro::CmdPool pool;
+	std::filesystem::create_directories("src/mod");
+	bro::Directory mod("src/mod");
 
-	for(int i = 0; i < 10; i++){
-		std::stringstream ss;
-		ss << "hello";
-		ss << i;
+	bro::Directory src("src");
+	src.copyTree(bro.log, "build/obj");
+	std::filesystem::create_directory("build/bin");
 
-		std::ofstream src(ss.str() + ".cpp");
-		src << "#include <iostream>\nint main(){std::cout << \"Hello " << i << " World!\" << std::endl; return 0;}";
-		src.close();
+	{
+		std::ofstream mod_main("src/mod/main.cpp");
+		mod_main << "#include <iostream>\nvoid hello();int main(){std::cout << \"Hello World!\" << std::endl; hello(); return 0;}";
+		mod_main.close();
 
-		std::unique_ptr<bro::CmdQueue> q = std::make_unique<bro::CmdQueue>();
-		q->push(cxx.compile(ss.str() + ".o", ss.str() + ".cpp"));
-		q->push(link.compile(ss.str(), ss.str() + ".cpp"));
-		q->push(run.compile(ss.str()));
-		q->push(rm.compile(ss.str()));
-		pool.push_back(std::move(q));
+		std::ofstream mod_hello("src/mod/hello.cpp");
+		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
+		mod_hello.close();
+
+		std::vector<std::string> outs;
+		std::vector<bro::File> ins;
+
+		for(const auto& e: mod.files()){
+			bro.log.info("File {}", e);
+			if(e.path.extension() == ".cpp"){
+				ins.push_back(e);
+				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
+			} else{
+				bro.log.warning("WTF: {}", e);
+			}
+		}
+
+		bro::CmdPool pool;
+		for(std::size_t i = 0; i < ins.size(); i++){
+			if(!(bro::File(outs[i]) > ins[i])){
+				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
+			}
+		}
+
+		bro.log.info("Pool: {}", pool.size());
+		pool.sync(bro.log);
+
+		exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
+
+		run.sync(bro.log, "build/bin/mod");
 	}
 
-	bro.log.info("Pool: {}", pool.async(bro.log).wait());
+	{
+		std::ofstream mod_main("src/mod/main.cpp");
+		mod_main << "#include <iostream>\nvoid hello();void bye();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); return 0;}";
+		mod_main.close();
 
-	std::filesystem::create_directories("mod/a/a");
-	std::filesystem::create_directories("mod/a/b");
-	std::filesystem::create_directories("mod/a/c");
-	std::filesystem::create_directories("mod/b/a");
-	std::filesystem::create_directories("mod/b/b");
-	std::filesystem::create_directories("mod/b/c");
+		std::ofstream mod_bye("src/mod/bye.cpp");
+		mod_bye << "#include <iostream>\nvoid bye(){std::cout << \"Hello from bye()\" << std::endl;}";
+		mod_bye.close();
 
-	bro::Directory mod("mod");
+		std::vector<std::string> outs;
+		std::vector<bro::File> ins;
 
-	bro.log.info("Copy tree: {}", mod.copyTree(bro.log, "build/obj"));
+		for(const auto& e: mod.files()){
+			bro.log.info("File {}", e);
+			if(e.path.extension() == ".cpp"){
+				ins.push_back(e);
+				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
+			} else{
+				bro.log.warning("WTF: {}", e);
+			}
+		}
 
-	std::filesystem::remove_all("mod");
+		bro::CmdPool pool;
+		for(std::size_t i = 0; i < ins.size(); i++){
+			if(!(bro::File(outs[i]) > ins[i])){
+				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
+			}
+		}
+
+		bro.log.info("Pool: {}", pool.size());
+		pool.sync(bro.log);
+
+		if(pool.size() > 0){
+			exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
+		}
+
+		run.sync(bro.log, "build/bin/mod");
+	}
+
+	{
+		std::vector<std::string> outs;
+		std::vector<bro::File> ins;
+
+		for(const auto& e: mod.files()){
+			bro.log.info("File {}", e);
+			if(e.path.extension() == ".cpp"){
+				ins.push_back(e);
+				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
+			} else{
+				bro.log.warning("WTF: {}", e);
+			}
+		}
+
+		bro::CmdPool pool;
+		for(std::size_t i = 0; i < ins.size(); i++){
+			if(!(bro::File(outs[i]) > ins[i])){
+				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
+			}
+		}
+
+		bro.log.info("Pool: {}", pool.size());
+		pool.sync(bro.log);
+
+		if(pool.size() > 0){
+			exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
+		}
+
+		run.sync(bro.log, "build/bin/mod");
+	}
+
+	std::filesystem::remove_all("src");
 	std::filesystem::remove_all("build");
+
+	bro.log.info("Cmds: {}", bro.cmds.size());
+	for(const auto& [key, val]: bro.cmds){
+		auto cmd = val.compile("$out", "$in");
+		bro.log.info("Cmd {}: {}", key, cmd.str());
+	}
 
 	return 0;
 }

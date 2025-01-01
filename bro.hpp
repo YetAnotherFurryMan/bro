@@ -7,7 +7,7 @@
 #include <iostream>
 #include <filesystem>
 #include <string_view>
-#include <source_location>
+#include <unordered_map>
 
 namespace bro{
 
@@ -150,6 +150,18 @@ inline const std::string_view CXX_COMPILER_NAME =
 
 			return 0;
 		}
+
+		inline std::vector<File> files(){
+			std::vector<File> files;
+
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+				if(std::filesystem::is_regular_file(e.status())){
+					files.emplace_back(e.path());
+				}
+			}
+
+			return files;
+		}
 	};
 
 	struct Runnable{
@@ -161,7 +173,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 		std::vector<std::string> cmd;
 		
 		Cmd() = default;
-		Cmd(std::string* cmd, std::size_t cmd_size)
+		Cmd(const std::string* cmd, std::size_t cmd_size)
 		{
 			for(size_t i = 0; i < cmd_size; i++)
 				this->cmd.push_back(cmd[i]);
@@ -192,15 +204,25 @@ inline const std::string_view CXX_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
+		std::string ext;
 		std::vector<std::string> cmd;
+
+		CmdTmpl() = default;
 		
-		CmdTmpl(std::string* cmd, std::size_t cmd_size)
+		CmdTmpl(const std::string* cmd, std::size_t cmd_size)
 		{
 			for(size_t i = 0; i < cmd_size; i++)
 				this->cmd.push_back(cmd[i]);
 		}
 
-		inline Cmd compile(std::string_view out, std::string* in, std::size_t in_size){
+		CmdTmpl(std::string_view ext, const std::string* cmd, std::size_t cmd_size):
+			ext{ext}
+		{
+			for(size_t i = 0; i < cmd_size; i++)
+				this->cmd.push_back(cmd[i]);
+		}
+
+		inline Cmd compile(std::string_view out, std::string* in, std::size_t in_size) const {
 			Cmd cmd;
 
 			for(const auto& e: this->cmd){
@@ -223,35 +245,35 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return cmd;
 		}
 
-		inline Cmd compile(std::string_view out, std::string in){
+		inline Cmd compile(std::string_view out, std::string in) const {
 			return compile(out, &in, 1);
 		}
 
-		inline Cmd compile(std::string in){
+		inline Cmd compile(std::string in) const {
 			return compile("", &in, 1);
 		}
 		
-		inline int sync(Log& log, std::string_view out, std::string* in, std::size_t in_size){
+		inline int sync(Log& log, std::string_view out, std::string* in, std::size_t in_size) const {
 			return compile(out, in, in_size).sync(log);
 		}
 
-		inline int sync(Log& log, std::string_view out, std::string in){
+		inline int sync(Log& log, std::string_view out, std::string in) const {
 			return compile(out, &in, 1).sync(log);
 		}
 
-		inline int sync(Log& log, std::string in){
+		inline int sync(Log& log, std::string in) const {
 			return compile("", &in, 1).sync(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string_view out, std::string* in, std::size_t in_size){
+		inline std::future<int> async(Log& log, std::string_view out, std::string* in, std::size_t in_size) const {
 			return compile(out, in, in_size).async(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string_view out, std::string in){
+		inline std::future<int> async(Log& log, std::string_view out, std::string in) const {
 			return compile(out, &in, 1).async(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string in){
+		inline std::future<int> async(Log& log, std::string in) const {
 			return compile("", &in, 1).async(log);
 		}
 	};
@@ -317,6 +339,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 		File src;
 		File exe;
 		std::vector<std::string_view> args;
+		std::unordered_map<std::string, CmdTmpl> cmds;
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
 			src{src}
@@ -358,6 +381,19 @@ inline const std::string_view CXX_COMPILER_NAME =
 				cmd.cmd.push_back(exe.path);
 				std::exit(cmd.sync(log));
 			}
+		}
+
+		inline void registerCmd(std::string_view name, const CmdTmpl& cmd){
+			std::string n(name);
+
+			if(cmds.find(n) != cmds.end())
+				return;
+
+			cmds[n] = cmd;
+		}
+
+		inline void registerCmd(std::string_view name, std::string_view ext, const std::string* cmd, std::size_t cmd_size){
+			registerCmd(name, CmdTmpl{ext, cmd, cmd_size});
 		}
 	};
 
