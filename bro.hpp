@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace bro{
 
@@ -18,7 +19,8 @@ inline const std::string_view CXX_COMPILER_NAME =
 #elif defined(__GNUC__)
 	"g++"
 #elif defined(_MSC_VER)
-	"msvc"
+#error "MSVS not supporded"
+	"cl"
 #elif defined(__BORLANDC__) || defined(__CODEGEARC__)
 	"bcc32"
 #else
@@ -90,15 +92,20 @@ inline const std::string_view CXX_COMPILER_NAME =
 			}
 		}
 
-		inline bool operator>(const File& f){
+		inline bool operator>(const File& f) const {
 			return exists && f.exists && this->time > f.time;
 		}
 
-		inline bool operator<(const File& f){
+		inline bool operator<(const File& f) const {
 			return exists && f.exists && this->time < f.time;
 		}
 
-		inline int copy(Log& log, std::filesystem::path to){
+		inline int copy(Log& log, std::filesystem::path to) const {
+			if(!exists){
+				log.error("File does not exist {}", path);
+				return 1;
+			}
+
 			std::error_code ec;
 			std::filesystem::copy(path, to, std::filesystem::copy_options::overwrite_existing, ec);
 			
@@ -111,6 +118,11 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 
 		inline int move(Log& log, std::filesystem::path to){
+			if(!exists){
+				log.error("File does not exist {}", path);
+				return 1;
+			}
+
 			std::error_code ec;
 			std::filesystem::rename(path, to, ec);
 			
@@ -119,14 +131,22 @@ inline const std::string_view CXX_COMPILER_NAME =
 				return ec.value();
 			}
 
+			path = to;
+
 			return 0;
 		}
 	};
 
 	struct Directory: public File{
+		Directory() = default;
 		Directory(std::filesystem::path p): File{p} {}
 
-		inline int copyTree(Log& log, std::filesystem::path p){
+		inline int copyTree(Log& log, std::filesystem::path p) const {
+			if(!exists){
+				log.error("File does not exist {}", path);
+				return 1;
+			}
+			
 			std::error_code ec;
 
 			std::filesystem::create_directories(p, ec);
@@ -151,8 +171,10 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return 0;
 		}
 
-		inline std::vector<File> files(){
+		inline std::vector<File> files() const {
 			std::vector<File> files;
+			if(!exists)
+				return files;
 
 			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
 				if(std::filesystem::is_regular_file(e.status())){
@@ -222,7 +244,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 				this->cmd.push_back(cmd[i]);
 		}
 
-		inline Cmd compile(std::string_view out, std::string* in, std::size_t in_size) const {
+		inline Cmd compile(std::string_view out, const std::string* in, std::size_t in_size) const {
 			Cmd cmd;
 
 			for(const auto& e: this->cmd){
@@ -245,35 +267,35 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return cmd;
 		}
 
-		inline Cmd compile(std::string_view out, std::string in) const {
+		inline Cmd compile(std::string_view out, const std::string& in) const {
 			return compile(out, &in, 1);
 		}
 
-		inline Cmd compile(std::string in) const {
+		inline Cmd compile(const std::string& in) const {
 			return compile("", &in, 1);
 		}
 		
-		inline int sync(Log& log, std::string_view out, std::string* in, std::size_t in_size) const {
+		inline int sync(Log& log, std::string_view out, const std::string* in, std::size_t in_size) const {
 			return compile(out, in, in_size).sync(log);
 		}
 
-		inline int sync(Log& log, std::string_view out, std::string in) const {
+		inline int sync(Log& log, std::string_view out, const std::string& in) const {
 			return compile(out, &in, 1).sync(log);
 		}
 
-		inline int sync(Log& log, std::string in) const {
+		inline int sync(Log& log, const std::string& in) const {
 			return compile("", &in, 1).sync(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string_view out, std::string* in, std::size_t in_size) const {
+		inline std::future<int> async(Log& log, std::string_view out, const std::string* in, std::size_t in_size) const {
 			return compile(out, in, in_size).async(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string_view out, std::string in) const {
+		inline std::future<int> async(Log& log, std::string_view out, const std::string& in) const {
 			return compile(out, &in, 1).async(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string in) const {
+		inline std::future<int> async(Log& log, const std::string& in) const {
 			return compile("", &in, 1).async(log);
 		}
 	};
@@ -334,12 +356,37 @@ inline const std::string_view CXX_COMPILER_NAME =
 		}
 	};
 
+	enum class ModType{
+		EXE,
+		LIB,
+		APP
+	};
+
+	struct Mod{
+		ModType type;
+		std::string name;
+		std::unordered_set<std::string> cmds;
+		Directory dir;
+
+		bool needsLinkage = false;
+		std::vector<std::string> objs;
+
+		Mod() = default;
+
+		Mod(ModType type, std::string_view name):
+			type{type}, name{name}
+		{
+			dir = Directory("src/" + this->name);
+		}
+	};
+
 	struct Bro{
 		Log log;
 		File src;
 		File exe;
 		std::vector<std::string_view> args;
 		std::unordered_map<std::string, CmdTmpl> cmds;
+		std::unordered_map<std::string, Mod> mods;
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
 			src{src}
@@ -383,17 +430,130 @@ inline const std::string_view CXX_COMPILER_NAME =
 			}
 		}
 
-		inline void registerCmd(std::string_view name, const CmdTmpl& cmd){
+		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd){
 			std::string n(name);
 
 			if(cmds.find(n) != cmds.end())
-				return;
+				return true;
 
 			cmds[n] = cmd;
+			return false;
 		}
 
-		inline void registerCmd(std::string_view name, std::string_view ext, const std::string* cmd, std::size_t cmd_size){
-			registerCmd(name, CmdTmpl{ext, cmd, cmd_size});
+		inline bool registerCmd(std::string_view name, std::string_view ext, const std::string* cmd, std::size_t cmd_size){
+			return registerCmd(name, CmdTmpl{ext, cmd, cmd_size});
+		}
+
+		inline bool registerModule(ModType type, std::string_view name){
+			std::string n(name);
+
+			if(mods.find(n) != mods.end())
+				return true;
+
+			mods.emplace(n, Mod{type, name});
+			return false;
+		}
+
+		inline bool use(std::string_view mod, std::string_view cmd){
+			std::string m(mod);
+			std::string c(cmd);
+
+			if(mods.find(m) == mods.end() || cmds.find(c) == cmds.end())
+				return true;
+
+			mods[m].cmds.insert(c);
+			return false;
+		}
+
+		inline int build(){
+			std::string lib_cmd[] = {"ar", "rcs", "$out", "$in"};
+			std::string dll_cmd[] = {"g++", "$in", "-o", "$out", "-shared"};
+			std::string exe_cmd[] = {"g++", "$in", "-o", "$out"};
+
+			CmdTmpl lib(lib_cmd, 4);
+			CmdTmpl dll(dll_cmd, 5);
+			CmdTmpl exe(exe_cmd, 4);
+
+			std::filesystem::create_directory("build");
+			std::filesystem::create_directory("build/bin");
+			std::filesystem::create_directory("build/lib");
+			std::filesystem::create_directory("build/app");
+
+			int ret = 0;
+
+			// TODO: Make CmdPool Runnable and q it with linkage
+			CmdPool pool;
+			for(auto& [name, mod]: mods){
+				log.info("Module {}", name);
+
+				if((ret = mod.dir.copyTree(log, "build/obj/" + name)))
+					return ret;
+
+				mod.needsLinkage = false;
+				mod.objs.clear();
+				for(const auto& file: mod.dir.files()){
+					std::string ext = file.path.extension();
+					for(const auto& cmd: mod.cmds){
+						if(cmds[cmd].ext == ext){
+							std::string out = "build/obj" + file.path.string().substr(3) + ".o";
+							mod.objs.push_back(out);
+							if(!(File(out) > file)){
+								mod.needsLinkage = true;
+								pool.push(cmds[cmd].compile(out, file.path.string()));
+							}
+						}
+					}
+				}
+			}
+
+			if((ret = pool.async(log).wait()))
+				return ret;
+
+			pool.clear();
+
+			// Link libs
+			for(const auto& [name, mod]: mods){
+				if(mod.type != ModType::LIB)
+					continue;
+
+				if(mod.needsLinkage){
+					pool.push(lib.compile("build/lib/lib" + name + ".a", mod.objs.data(), mod.objs.size()));
+					pool.push(dll.compile("build/lib/" + name + ".so", mod.objs.data(), mod.objs.size()));
+				}
+			}
+
+			if((ret = pool.async(log).wait()))
+				return ret;
+
+			pool.clear();
+
+			// Link exes
+			for(const auto& [name, mod]: mods){
+				if(mod.type != ModType::EXE)
+					continue;
+
+				if(mod.needsLinkage)
+					pool.push(exe.compile("build/bin/" + name, mod.objs.data(), mod.objs.size()));
+			}
+
+			if((ret = pool.async(log).wait()))
+				return ret;
+
+			pool.clear();
+
+			// Link apps
+			for(const auto& [name, mod]: mods){
+				if(mod.type != ModType::APP)
+					continue;
+
+				if(mod.needsLinkage)
+					pool.push(dll.compile("build/app/" + name + ".so", mod.objs.data(), mod.objs.size()));
+			}
+
+			if((ret = pool.async(log).wait()))
+				return ret;
+
+			return 0;
 		}
 	};
 

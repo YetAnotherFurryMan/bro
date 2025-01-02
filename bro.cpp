@@ -10,12 +10,10 @@ int main(int argc, const char** argv){
 	bro.fresh();
 
 	std::string cmd_cxx[] = {"g++", "-c", "$in", "-o", "$out"};
-	bro::CmdTmpl cxx(cmd_cxx, 5);
-
 	bro.registerCmd("g++", ".cpp", cmd_cxx, 5);
 
-	std::string cmd_exe[] = {"g++", "$in", "-o", "$out"};
-	bro::CmdTmpl exe(cmd_exe, 4);
+	std::string cmd_cc[] = {"gcc", "-c", "$in", "-o", "$out"};
+	bro.registerCmd("gcc", ".c", cmd_cc, 5);
 
 	std::string cmd_run[] = {"./$in"};
 	bro::CmdTmpl run(cmd_run, 1);
@@ -23,9 +21,8 @@ int main(int argc, const char** argv){
 	std::filesystem::create_directories("src/mod");
 	bro::Directory mod("src/mod");
 
-	bro::Directory src("src");
-	src.copyTree(bro.log, "build/obj");
-	std::filesystem::create_directory("build/bin");
+	bro.registerModule(bro::ModType::EXE, "mod");
+	bro.use("mod", "g++");
 
 	{
 		std::ofstream mod_main("src/mod/main.cpp");
@@ -36,30 +33,7 @@ int main(int argc, const char** argv){
 		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
 		mod_hello.close();
 
-		std::vector<std::string> outs;
-		std::vector<bro::File> ins;
-
-		for(const auto& e: mod.files()){
-			bro.log.info("File {}", e);
-			if(e.path.extension() == ".cpp"){
-				ins.push_back(e);
-				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
-			} else{
-				bro.log.warning("WTF: {}", e);
-			}
-		}
-
-		bro::CmdPool pool;
-		for(std::size_t i = 0; i < ins.size(); i++){
-			if(!(bro::File(outs[i]) > ins[i])){
-				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
-			}
-		}
-
-		bro.log.info("Pool: {}", pool.size());
-		pool.sync(bro.log);
-
-		exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
+		bro.build();
 
 		run.sync(bro.log, "build/bin/mod");
 	}
@@ -73,64 +47,29 @@ int main(int argc, const char** argv){
 		mod_bye << "#include <iostream>\nvoid bye(){std::cout << \"Hello from bye()\" << std::endl;}";
 		mod_bye.close();
 
-		std::vector<std::string> outs;
-		std::vector<bro::File> ins;
-
-		for(const auto& e: mod.files()){
-			bro.log.info("File {}", e);
-			if(e.path.extension() == ".cpp"){
-				ins.push_back(e);
-				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
-			} else{
-				bro.log.warning("WTF: {}", e);
-			}
-		}
-
-		bro::CmdPool pool;
-		for(std::size_t i = 0; i < ins.size(); i++){
-			if(!(bro::File(outs[i]) > ins[i])){
-				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
-			}
-		}
-
-		bro.log.info("Pool: {}", pool.size());
-		pool.sync(bro.log);
-
-		if(pool.size() > 0){
-			exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
-		}
+		bro.build();
 
 		run.sync(bro.log, "build/bin/mod");
 	}
 
 	{
-		std::vector<std::string> outs;
-		std::vector<bro::File> ins;
+		bro.build();
+		run.sync(bro.log, "build/bin/mod");
+	}
 
-		for(const auto& e: mod.files()){
-			bro.log.info("File {}", e);
-			if(e.path.extension() == ".cpp"){
-				ins.push_back(e);
-				outs.push_back(std::filesystem::path("build/obj" + e.path.string().substr(3)).replace_extension(".cpp.o"));
-			} else{
-				bro.log.warning("WTF: {}", e);
-			}
-		}
+	{
+		std::ofstream mod_main("src/mod/main.cpp");
+		mod_main << "#include <iostream>\nvoid hello();extern \"C\" void bye();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); return 0;}";
+		mod_main.close();
 
-		bro::CmdPool pool;
-		for(std::size_t i = 0; i < ins.size(); i++){
-			if(!(bro::File(outs[i]) > ins[i])){
-				pool.push(bro.cmds["g++"].compile(outs[i], ins[i].path.string()));
-			}
-		}
+		std::filesystem::remove("src/mod/bye.cpp");
 
-		bro.log.info("Pool: {}", pool.size());
-		pool.sync(bro.log);
+		std::ofstream mod_bye("src/mod/bye.c");
+		mod_bye << "#include <stdio.h>\nvoid bye(){printf(\"Hello from bye()\\n\");}";
+		mod_bye.close();
 
-		if(pool.size() > 0){
-			exe.sync(bro.log, "build/bin/mod", outs.data(), outs.size());
-		}
-
+		bro.use("mod", "gcc");
+		bro.build();
 		run.sync(bro.log, "build/bin/mod");
 	}
 
