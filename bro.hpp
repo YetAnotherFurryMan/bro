@@ -419,21 +419,43 @@ inline const std::string_view C_COMPILER_NAME =
 		std::vector<std::string_view> args;
 		std::unordered_map<std::string, CmdTmpl> cmds;
 		std::unordered_map<std::string, Mod> mods;
+		std::unordered_map<std::string_view, std::string_view> flags;
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
 			src{src}
-		{}
+		{
+			flags["cc"] = C_COMPILER_NAME;
+			flags["cxx"] = CXX_COMPILER_NAME;
+		}
 		
 		Bro(std::filesystem::path p, std::filesystem::path src = __builtin_FILE()):
 			src{src},
 			exe{p}
-		{}
+		{
+			flags["cc"] = C_COMPILER_NAME;
+			flags["cxx"] = CXX_COMPILER_NAME;
+		}
 		
 		Bro(int argc, const char** argv, std::filesystem::path src = __builtin_FILE()):
 			src{src},
 			exe{argv[0]},
 			args{argv + 1, argv + argc}
-		{}
+		{
+			flags["cc"] = C_COMPILER_NAME;
+			flags["cxx"] = CXX_COMPILER_NAME;
+
+			for(size_t i = 0; i < args.size();){
+				auto eq = args[i].find('=');
+				if(eq != std::string_view::npos){
+					std::string_view name = args[i].substr(0, eq);
+					std::string_view value = args[i].substr(eq + 1);
+					flags[name] = value;
+					args.erase(args.begin() + i);
+				} else {
+					i++;
+				}
+			}
+		}
 
 		inline bool isFresh(){
 			return !(src > exe);
@@ -448,7 +470,7 @@ inline const std::string_view C_COMPILER_NAME =
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				std::string command[] = {std::string(CXX_COMPILER_NAME), "-o", exe.path, src.path};
+				std::string command[] = {std::string(flags["cxx"]), "-o", exe.path, src.path};
 				Cmd cmd(command, 4);
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
