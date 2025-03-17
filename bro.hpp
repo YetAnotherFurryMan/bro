@@ -42,13 +42,19 @@ inline const std::string_view CXX_COMPILER_NAME =
 	"clang++"
 #elif defined(__GNUC__)
 	"g++"
-#elif defined(_MSC_VER)
-#error "MSVS not supporded"
-	"cl"
-#elif defined(__BORLANDC__) || defined(__CODEGEARC__)
-	"bcc32"
 #else
 	"c++"
+#endif
+;
+
+// Detect C compiler name
+inline const std::string_view C_COMPILER_NAME = 
+#if defined(__clang__)
+	"clang"
+#elif defined(__GNUC__)
+	"gcc"
+#else
+	"cc"
 #endif
 ;
 
