@@ -213,6 +213,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 	struct Runnable{
 		inline virtual int sync(Log& log) = 0;
 		inline virtual std::future<int> async(Log& log) = 0;
+		virtual ~Runnable() = default;
 	};
 
 	struct Cmd: public Runnable{
@@ -390,6 +391,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 		ModType type;
 		std::string name;
 		std::unordered_set<std::string> cmds;
+		std::unordered_set<std::string> deps;
 		Directory dir;
 
 		bool needsLinkage = false;
@@ -489,6 +491,17 @@ inline const std::string_view CXX_COMPILER_NAME =
 			return false;
 		}
 
+		inline bool dep(std::string_view mod, std::string_view lib){
+			std::string m(mod);
+			std::string l(lib);
+
+			if(mods.find(m) == mods.end() || mods.find(l) == mods.end() || mods[l].type != ModType::LIB)
+				return true;
+
+			mods[m].deps.insert(l);
+			return false;
+		}
+
 		inline int build(){
 			std::string lib_cmd[] = {"ar", "rcs", "$out", "$in"};
 			std::string dll_cmd[] = {"g++", "$in", "-o", "$out", "-shared"};
@@ -552,9 +565,13 @@ inline const std::string_view CXX_COMPILER_NAME =
 			pool.clear();
 
 			// Link exes
-			for(const auto& [name, mod]: mods){
+			for(auto& [name, mod]: mods){
 				if(mod.type != ModType::EXE)
 					continue;
+
+				for(const auto& dep: mod.deps){
+					mod.objs.push_back("build/lib/lib" + dep + ".a");
+				}
 
 				if(mod.needsLinkage)
 					pool.push(exe.compile("build/bin/" + name, mod.objs.data(), mod.objs.size()));
