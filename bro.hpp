@@ -275,7 +275,7 @@ inline const std::string_view C_COMPILER_NAME =
 				this->cmd.push_back(cmd[i]);
 		}
 
-		inline Cmd compile(std::string_view out, const std::string* in, std::size_t in_size) const {
+		inline Cmd compile(std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
 			Cmd cmd;
 
 			for(const auto& e: this->cmd){
@@ -290,6 +290,12 @@ inline const std::string_view C_COMPILER_NAME =
 					std::string tmp = e;
 					tmp.replace(pos, 4, out);
 					cmd.cmd.push_back(tmp);
+				} else if((pos = e.find("$flags")) != std::string::npos){
+					for(std::size_t i = 0; i < flags_size; i++){
+						std::string tmp = e;
+						tmp.replace(pos, 6, flags[i]);
+						cmd.cmd.push_back(tmp);
+					}
 				} else{
 					cmd.cmd.push_back(e);
 				}
@@ -306,8 +312,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return compile("", &in, 1);
 		}
 		
-		inline int sync(Log& log, std::string_view out, const std::string* in, std::size_t in_size) const {
-			return compile(out, in, in_size).sync(log);
+		inline int sync(Log& log, std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
+			return compile(out, in, in_size, flags, flags_size).sync(log);
 		}
 
 		inline int sync(Log& log, std::string_view out, const std::string& in) const {
@@ -318,8 +324,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return compile("", &in, 1).sync(log);
 		}
 
-		inline std::future<int> async(Log& log, std::string_view out, const std::string* in, std::size_t in_size) const {
-			return compile(out, in, in_size).async(log);
+		inline std::future<int> async(Log& log, std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
+			return compile(out, in, in_size, flags, flags_size).async(log);
 		}
 
 		inline std::future<int> async(Log& log, std::string_view out, const std::string& in) const {
@@ -398,6 +404,7 @@ inline const std::string_view C_COMPILER_NAME =
 		std::string name;
 		std::unordered_set<std::string> cmds;
 		std::unordered_set<std::string> deps;
+		std::unordered_set<std::string> flags;
 		Directory dir;
 
 		bool needsLinkage = false;
@@ -530,14 +537,27 @@ inline const std::string_view C_COMPILER_NAME =
 			return false;
 		}
 
+		inline bool link(std::string_view mod, std::string_view flag){
+			std::string m(mod);
+			std::string f(flag);
+
+			if(mods.find(m) == mods.end())
+				return true;
+
+			mods[m].flags.insert(f);
+
+			return false;
+		}
+
 		inline int build(){
+			// Get rid of g++ for linkage, use gcc and if someone is willing to use C++ will use link function.
 			std::string lib_cmd[] = {"ar", "rcs", "$out", "$in"};
 			std::string dll_cmd[] = {"g++", "$in", "-o", "$out", "-shared"};
-			std::string exe_cmd[] = {"g++", "$in", "-o", "$out"};
+			std::string exe_cmd[] = {"g++", "$flags", "$in", "-o", "$out"};
 
 			CmdTmpl lib(lib_cmd, 4);
 			CmdTmpl dll(dll_cmd, 5);
-			CmdTmpl exe(exe_cmd, 4);
+			CmdTmpl exe(exe_cmd, 5);
 
 			std::filesystem::create_directory("build");
 			std::filesystem::create_directory("build/bin");
@@ -597,12 +617,13 @@ inline const std::string_view C_COMPILER_NAME =
 				if(mod.type != ModType::EXE)
 					continue;
 
-				for(const auto& dep: mod.deps){
+				for(const auto& dep: mod.deps)
 					mod.objs.push_back("build/lib/lib" + dep + ".a");
-				}
+
+				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 
 				if(mod.needsLinkage)
-					pool.push(exe.compile("build/bin/" + name, mod.objs.data(), mod.objs.size()));
+					pool.push(exe.compile("build/bin/" + name, mod.objs.data(), mod.objs.size(), flags.data(), flags.size()));
 			}
 
 			if((ret = pool.async(log).wait()))
