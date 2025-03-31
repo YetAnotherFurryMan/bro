@@ -262,17 +262,60 @@ inline const std::string_view C_COMPILER_NAME =
 
 		CmdTmpl() = default;
 		
-		CmdTmpl(const std::string* cmd, std::size_t cmd_size)
-		{
-			for(size_t i = 0; i < cmd_size; i++)
-				this->cmd.push_back(cmd[i]);
-		}
+		CmdTmpl(const std::string* cmd, std::size_t cmd_size):
+			cmd{cmd, cmd + cmd_size}
+		{}
+
+		CmdTmpl(const std::vector<std::string>& cmd):
+			cmd{cmd}
+		{}
+
+		template<std::size_t N>
+		CmdTmpl(const std::array<std::string, N>& cmd):
+			cmd{cmd.begin(), cmd.end()}
+		{}
 
 		CmdTmpl(std::string_view ext, const std::string* cmd, std::size_t cmd_size):
-			ext{ext}
-		{
-			for(size_t i = 0; i < cmd_size; i++)
-				this->cmd.push_back(cmd[i]);
+			ext{ext},
+			cmd{cmd, cmd + cmd_size}
+		{}
+
+		CmdTmpl(std::string_view ext, const std::vector<std::string>& cmd):
+			ext{ext},
+			cmd{cmd}
+		{}
+
+		template<std::size_t N>
+		CmdTmpl(std::string_view ext, std::array<std::string, N> cmd):
+			ext{ext},
+			cmd{cmd.begin(), cmd.end()}
+		{}
+
+		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars){
+			Cmd cmd;
+
+			for(const auto& e: this->cmd){
+				std::size_t pos = 0;
+				bool f = false;
+				for(const auto& [k, v]: vars){
+					if((pos = e.find(std::string("$") + k)) != std::string::npos){
+						for(const auto& value: v){
+							std::string tmp = e;
+							tmp.replace(pos, 3, value);
+							cmd.cmd.push_back(tmp);
+						}
+
+						f = true;
+						break;
+					}
+				}
+
+				if(!f){
+					cmd.cmd.push_back(e);
+				}
+			}
+
+			return cmd;
 		}
 
 		inline Cmd compile(std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
@@ -503,6 +546,15 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline bool registerCmd(std::string_view name, std::string_view ext, const std::string* cmd, std::size_t cmd_size){
 			return registerCmd(name, CmdTmpl{ext, cmd, cmd_size});
+		}
+
+		inline bool registerCmd(std::string_view name, std::string_view ext, const std::vector<std::string>& cmd){
+			return registerCmd(name, CmdTmpl{ext, cmd});
+		}
+
+		template<std::size_t N>
+		inline bool registerCmd(std::string_view name, std::string_view ext, const std::array<std::string, N>& cmd){
+			return registerCmd(name, CmdTmpl{ext, cmd});
 		}
 
 		inline bool registerModule(ModType type, std::string_view name){

@@ -9,14 +9,14 @@ int main(int argc, const char** argv){
 	
 	bro.fresh();
 
-	std::string cmd_cxx[] = {"g++", "-c", "$in", "-o", "$out"};
-	bro.registerCmd("g++", ".cpp", cmd_cxx, 5);
+	bro.registerCmd("g++", ".cpp", {"g++", "-c", "$in", "-o", "$out"});
+	bro.registerCmd("gcc", ".c", {"gcc", "-c", "$in", "-o", "$out"});
 
-	std::string cmd_cc[] = {"gcc", "-c", "$in", "-o", "$out"};
-	bro.registerCmd("gcc", ".c", cmd_cc, 5);
+	bro::CmdTmpl run({"./$in"});
 
-	std::string cmd_run[] = {"./$in"};
-	bro::CmdTmpl run(cmd_run, 1);
+	std::cout << run.compile({
+		{"in", {"lol"}}
+	}).str() << std::endl;
 
 	std::filesystem::create_directories("src/mod");
 	bro::Directory mod("src/mod");
