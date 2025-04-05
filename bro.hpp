@@ -226,11 +226,19 @@ inline const std::string_view C_COMPILER_NAME =
 		std::vector<std::string> cmd;
 		
 		Cmd() = default;
-		Cmd(const std::string* cmd, std::size_t cmd_size)
-		{
-			for(size_t i = 0; i < cmd_size; i++)
-				this->cmd.push_back(cmd[i]);
-		}
+
+		Cmd(const std::string* cmd, std::size_t cmd_size):
+			cmd{cmd, cmd + cmd_size}
+		{}
+
+		Cmd(const std::vector<std::string>& cmd):
+			cmd{cmd}
+		{}
+
+		template<std::size_t N>
+		Cmd(const std::array<std::string, N>& cmd):
+			cmd{cmd.begin(), cmd.end()}
+		{}
 
 		inline std::string str(){
 			std::stringstream ss;
