@@ -14,10 +14,6 @@ int main(int argc, const char** argv){
 
 	bro::CmdTmpl run({"./$in"});
 
-	std::cout << run.compile({
-		{"in", {"lol"}}
-	}).str() << std::endl;
-
 	std::filesystem::create_directories("src/mod");
 	bro::Directory mod("src/mod");
 
@@ -35,7 +31,7 @@ int main(int argc, const char** argv){
 
 		bro.build();
 
-		run.sync(bro.log, "build/bin/mod");
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	{
@@ -49,12 +45,12 @@ int main(int argc, const char** argv){
 
 		bro.build();
 
-		run.sync(bro.log, "build/bin/mod");
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	{
 		bro.build();
-		run.sync(bro.log, "build/bin/mod");
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	{
@@ -70,7 +66,7 @@ int main(int argc, const char** argv){
 
 		bro.use("mod", "gcc");
 		bro.build();
-		run.sync(bro.log, "build/bin/mod");
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	std::filesystem::remove_all("src");
@@ -78,7 +74,7 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Cmds: {}", bro.cmds.size());
 	for(const auto& [key, val]: bro.cmds){
-		auto cmd = val.compile("$out", "$in");
+		auto cmd = val.compile();
 		bro.log.info("Cmd {}: {}", key, cmd.str());
 	}
 

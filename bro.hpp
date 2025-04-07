@@ -29,6 +29,7 @@
 #include <sstream>
 #include <iomanip>
 #include <iostream>
+#include <algorithm>
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
@@ -299,92 +300,83 @@ inline const std::string_view C_COMPILER_NAME =
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars){
-			Cmd cmd;
+		inline CmdTmpl resolve(std::string_view name, std::string_view value) const {
+			CmdTmpl ret = *this;
 
-			for(const auto& e: this->cmd){
-				std::size_t pos = 0;
-				bool f = false;
-				for(const auto& [k, v]: vars){
-					if((pos = e.find(std::string("$") + k)) != std::string::npos){
-						for(const auto& value: v){
-							std::string tmp = e;
-							tmp.replace(pos, 3, value);
-							cmd.cmd.push_back(tmp);
-						}
+			std::string v_name = "$";
+			v_name += name;
 
-						f = true;
-						break;
-					}
-				}
-
-				if(!f){
-					cmd.cmd.push_back(e);
+			for(auto& e: ret.cmd){
+				auto pos = e.find(v_name);
+				while(pos != std::string::npos){
+					e.replace(pos, v_name.length(), value);
+					pos = e.find(v_name, pos + v_name.length());
 				}
 			}
 
-			return cmd;
+			return ret;
 		}
 
-		inline Cmd compile(std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
-			Cmd cmd;
+		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
+			CmdTmpl ret;
+			ret.ext = this->ext;
+
+			std::string v_name = "$";
+			v_name += name;
 
 			for(const auto& e: this->cmd){
-				std::size_t pos = 0;
-				if((pos = e.find("$in")) != std::string::npos){
-					for(std::size_t i = 0; i < in_size; i++){
-						std::string tmp = e;
-						tmp.replace(pos, 3, in[i]);
-						cmd.cmd.push_back(tmp);
-					}
-				} else if((pos = e.find("$out")) != std::string::npos){
-					std::string tmp = e;
-					tmp.replace(pos, 4, out);
-					cmd.cmd.push_back(tmp);
-				} else if((pos = e.find("$flags")) != std::string::npos){
-					for(std::size_t i = 0; i < flags_size; i++){
-						std::string tmp = e;
-						tmp.replace(pos, 6, flags[i]);
-						cmd.cmd.push_back(tmp);
-					}
+				auto pos = e.find(v_name);
+				if(pos == std::string::npos){
+					ret.cmd.push_back(e);
 				} else{
-					cmd.cmd.push_back(e);
+					for(const auto& value: values){
+						auto p = pos;
+						std::string bit = e;
+						while(p != std::string::npos){
+							bit.replace(p, v_name.length(), value);
+							p = bit.find(v_name, p + v_name.length());
+						}
+						ret.cmd.push_back(bit);
+					}
 				}
 			}
 
-			return cmd;
+			return ret;
 		}
 
-		inline Cmd compile(std::string_view out, const std::string& in) const {
-			return compile(out, &in, 1);
+		inline Cmd compile() const {
+			return Cmd(resolve("$dollar", "$").cmd);
 		}
 
-		inline Cmd compile(const std::string& in) const {
-			return compile("", &in, 1);
+		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
+			std::vector<std::string> keys;
+			for(const auto& [key, val]: vars){
+				keys.emplace_back(key);
+			}
+			std::sort(keys.begin(), keys.end());
+			
+			CmdTmpl cmd = *this;
+			for(const auto& key: keys){
+				cmd = cmd.resolve(key, vars.at(key));
+			}
+
+			return cmd.compile();
+		}
+
+		inline int sync(Log& log) const {
+			return compile().sync(log);
 		}
 		
-		inline int sync(Log& log, std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
-			return compile(out, in, in_size, flags, flags_size).sync(log);
+		inline int sync(Log& log, const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
+			return compile(vars).sync(log);
 		}
 
-		inline int sync(Log& log, std::string_view out, const std::string& in) const {
-			return compile(out, &in, 1).sync(log);
+		inline std::future<int> async(Log& log) const {
+			return compile().async(log);
 		}
-
-		inline int sync(Log& log, const std::string& in) const {
-			return compile("", &in, 1).sync(log);
-		}
-
-		inline std::future<int> async(Log& log, std::string_view out, const std::string* in, std::size_t in_size, const std::string* flags = nullptr, std::size_t flags_size = 0) const {
-			return compile(out, in, in_size, flags, flags_size).async(log);
-		}
-
-		inline std::future<int> async(Log& log, std::string_view out, const std::string& in) const {
-			return compile(out, &in, 1).async(log);
-		}
-
-		inline std::future<int> async(Log& log, const std::string& in) const {
-			return compile("", &in, 1).async(log);
+		
+		inline std::future<int> async(Log& log, const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
+			return compile(vars).async(log);
 		}
 	};
 
@@ -640,7 +632,10 @@ inline const std::string_view C_COMPILER_NAME =
 							mod.objs.push_back(out);
 							if(!(File(out) > file)){
 								mod.needsLinkage = true;
-								pool.push(cmds[cmd].compile(out, file.path.string()));
+								pool.push(cmds[cmd].compile({
+											{"out", {out}}, 
+											{"in", {file.path.string()}}
+										}));
 							}
 						}
 					}
@@ -658,8 +653,14 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				if(mod.needsLinkage){
-					pool.push(lib.compile("build/lib/lib" + name + ".a", mod.objs.data(), mod.objs.size()));
-					pool.push(dll.compile("build/lib/" + name + ".so", mod.objs.data(), mod.objs.size()));
+					pool.push(lib.compile({
+								{"out", {"build/lib/lib" + name + ".a"}},
+								{"in", mod.objs}
+							}));
+					pool.push(dll.compile({
+								{"out", {"build/lib/" + name + ".so"}},
+								{"in", mod.objs}
+							}));
 				}
 			}
 
@@ -678,8 +679,13 @@ inline const std::string_view C_COMPILER_NAME =
 
 				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 
-				if(mod.needsLinkage)
-					pool.push(exe.compile("build/bin/" + name, mod.objs.data(), mod.objs.size(), flags.data(), flags.size()));
+				if(mod.needsLinkage){
+					pool.push(exe.compile({
+								{"out", {"build/bin/" + name}},
+								{"in", mod.objs},
+								{"flags", flags}
+							}));
+				}
 			}
 
 			if((ret = pool.async(log).wait()))
@@ -692,8 +698,12 @@ inline const std::string_view C_COMPILER_NAME =
 				if(mod.type != ModType::APP)
 					continue;
 
-				if(mod.needsLinkage)
-					pool.push(dll.compile("build/app/" + name + ".so", mod.objs.data(), mod.objs.size()));
+				if(mod.needsLinkage){
+					pool.push(dll.compile({
+								{"out", {"build/app/" + name + ".so"}}, 
+								{"in", mod.objs}
+							}));
+				}
 			}
 
 			if((ret = pool.async(log).wait()))
