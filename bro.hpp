@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <array>
 #include <vector>
 #include <future>
 #include <sstream>
@@ -471,19 +472,24 @@ inline const std::string_view C_COMPILER_NAME =
 		std::unordered_map<std::string, Mod> mods;
 		std::unordered_map<std::string_view, std::string_view> flags;
 
+		inline void _setup_default(){
+			flags["cc"] = C_COMPILER_NAME;
+			flags["cxx"] = CXX_COMPILER_NAME;
+			flags["ld"] = C_COMPILER_NAME;
+			flags["ar"] = "ar";
+		}
+
 		Bro(std::filesystem::path src = __builtin_FILE()):
 			src{src}
 		{
-			flags["cc"] = C_COMPILER_NAME;
-			flags["cxx"] = CXX_COMPILER_NAME;
+			_setup_default();
 		}
 		
 		Bro(std::filesystem::path p, std::filesystem::path src = __builtin_FILE()):
 			src{src},
 			exe{p}
 		{
-			flags["cc"] = C_COMPILER_NAME;
-			flags["cxx"] = CXX_COMPILER_NAME;
+			_setup_default();
 		}
 		
 		Bro(int argc, const char** argv, std::filesystem::path src = __builtin_FILE()):
@@ -491,8 +497,7 @@ inline const std::string_view C_COMPILER_NAME =
 			exe{argv[0]},
 			args{argv + 1, argv + argc}
 		{
-			flags["cc"] = C_COMPILER_NAME;
-			flags["cxx"] = CXX_COMPILER_NAME;
+			_setup_default();
 
 			for(size_t i = 0; i < args.size();){
 				auto eq = args[i].find('=');
@@ -602,9 +607,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline int build(){
-			CmdTmpl lib({"ar", "rcs", "$out", "$in"});
-			CmdTmpl dll({"gcc", "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({"gcc", "$flags", "$in", "-o", "$out"});
+			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
+			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
+			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
 
 			std::filesystem::create_directory("build");
 			std::filesystem::create_directory("build/bin");
