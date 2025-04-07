@@ -19,6 +19,7 @@ int main(int argc, const char** argv){
 
 	bro.registerModule(bro::ModType::EXE, "mod");
 	bro.use("mod", "g++");
+	bro.link("mod", "-lstdc++");
 
 	{
 		std::ofstream mod_main("src/mod/main.cpp");

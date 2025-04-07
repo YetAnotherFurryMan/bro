@@ -602,10 +602,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline int build(){
-			// Get rid of g++ for linkage, use gcc and if someone is willing to use C++ will use link function.
 			CmdTmpl lib({"ar", "rcs", "$out", "$in"});
-			CmdTmpl dll({"g++", "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({"g++", "$flags", "$in", "-o", "$out"});
+			CmdTmpl dll({"gcc", "$in", "-o", "$out", "-shared"});
+			CmdTmpl exe({"gcc", "$flags", "$in", "-o", "$out"});
 
 			std::filesystem::create_directory("build");
 			std::filesystem::create_directory("build/bin");
