@@ -472,6 +472,9 @@ inline const std::string_view C_COMPILER_NAME =
 		std::unordered_map<std::string, CmdTmpl> cmds;
 		std::unordered_map<std::string, Mod> mods;
 		std::unordered_map<std::string_view, std::string_view> flags;
+		bool hasExe = false;
+		bool hasLib = false;
+		bool hasApp = false;
 
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
@@ -480,6 +483,7 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["cxx"] = CXX_COMPILER_NAME;
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar";
+			flags["build"] = "build";
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -516,7 +520,7 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline bool isFresh(){
-			return !(src > exe && header > exe);
+			return !(src > exe || header > exe);
 		}
 
 		inline void fresh(){
@@ -571,6 +575,12 @@ inline const std::string_view C_COMPILER_NAME =
 			if(mods.find(n) != mods.end())
 				return true;
 
+			switch(type){
+				case ModType::EXE: hasExe = true; break;
+				case ModType::LIB: hasLib = true; break;
+				case ModType::APP: hasApp = true; break;
+			}
+
 			mods.emplace(n, Mod{type, name});
 			return false;
 		}
@@ -614,10 +624,10 @@ inline const std::string_view C_COMPILER_NAME =
 			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
 			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
 
-			std::filesystem::create_directory("build");
-			std::filesystem::create_directory("build/bin");
-			std::filesystem::create_directory("build/lib");
-			std::filesystem::create_directory("build/app");
+			std::filesystem::create_directory(flags["build"]);
+			if(hasExe) std::filesystem::create_directory(std::string(flags["build"]) + "/bin");
+			if(hasLib) std::filesystem::create_directory(std::string(flags["build"]) + "/lib");
+			if(hasApp) std::filesystem::create_directory(std::string(flags["build"]) + "/app");
 
 			int ret = 0;
 
@@ -626,7 +636,7 @@ inline const std::string_view C_COMPILER_NAME =
 			for(auto& [name, mod]: mods){
 				log.info("Module {}", name);
 
-				if((ret = mod.dir.copyTree(log, "build/obj/" + name)))
+				if((ret = mod.dir.copyTree(log, std::string(flags["build"]) + "/obj/" + name)))
 					return ret;
 
 				mod.needsLinkage = false;
@@ -635,7 +645,7 @@ inline const std::string_view C_COMPILER_NAME =
 					std::string ext = file.path.extension();
 					for(const auto& cmd: mod.cmds){
 						if(cmds[cmd].ext == ext){
-							std::string out = "build/obj" + file.path.string().substr(3) + ".o";
+							std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
 							mod.objs.push_back(out);
 							if(!(File(out) > file)){
 								mod.needsLinkage = true;
@@ -661,11 +671,11 @@ inline const std::string_view C_COMPILER_NAME =
 
 				if(mod.needsLinkage){
 					pool.push(lib.compile({
-								{"out", {"build/lib/lib" + name + ".a"}},
+								{"out", {std::string(flags["build"]) + "/lib/lib" + name + ".a"}},
 								{"in", mod.objs}
 							}));
 					pool.push(dll.compile({
-								{"out", {"build/lib/" + name + ".so"}},
+								{"out", {std::string(flags["build"]) + "/lib/" + name + ".so"}},
 								{"in", mod.objs}
 							}));
 				}
@@ -682,13 +692,13 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				for(const auto& dep: mod.deps)
-					mod.objs.push_back("build/lib/lib" + dep + ".a");
+					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + ".a");
 
 				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 
 				if(mod.needsLinkage){
 					pool.push(exe.compile({
-								{"out", {"build/bin/" + name}},
+								{"out", {std::string(this->flags["build"]) + "/bin/" + name}},
 								{"in", mod.objs},
 								{"flags", flags}
 							}));
@@ -707,7 +717,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 				if(mod.needsLinkage){
 					pool.push(dll.compile({
-								{"out", {"build/app/" + name + ".so"}}, 
+								{"out", {std::string(flags["build"]) + "/app/" + name + ".so"}}, 
 								{"in", mod.objs}
 							}));
 				}

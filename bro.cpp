@@ -9,6 +9,8 @@ int main(int argc, const char** argv){
 	
 	bro.fresh();
 
+	bro.log.info("Header: {}", bro.header);
+
 	bro.registerCmd("g++", ".cpp", {"g++", "-c", "$in", "-o", "$out"});
 	bro.registerCmd("gcc", ".c", {"gcc", "-c", "$in", "-o", "$out"});
 
