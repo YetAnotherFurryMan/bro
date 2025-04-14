@@ -465,6 +465,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 	struct Bro{
 		Log log;
+		File header;
 		File src;
 		File exe;
 		std::vector<std::string_view> args;
@@ -473,6 +474,8 @@ inline const std::string_view C_COMPILER_NAME =
 		std::unordered_map<std::string_view, std::string_view> flags;
 
 		inline void _setup_default(){
+			std::string header_path = __FILE__;
+			header = File(header_path);
 			flags["cc"] = C_COMPILER_NAME;
 			flags["cxx"] = CXX_COMPILER_NAME;
 			flags["ld"] = C_COMPILER_NAME;
@@ -513,7 +516,7 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline bool isFresh(){
-			return !(src > exe);
+			return !(src > exe && header > exe);
 		}
 
 		inline void fresh(){
