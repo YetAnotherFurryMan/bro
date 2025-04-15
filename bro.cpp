@@ -73,8 +73,9 @@ int main(int argc, const char** argv){
 	}
 
 	bro.ninja();
+	bro.makefile();
 
-	if(bro.isFlagSet("save")){
+	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");
 		std::filesystem::remove_all("build");
 	}

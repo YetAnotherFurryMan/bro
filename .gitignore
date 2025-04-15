@@ -2,3 +2,4 @@ bro
 compile_commands.json
 *.old
 *.ninja
+Makefile

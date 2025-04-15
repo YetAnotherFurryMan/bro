@@ -795,13 +795,13 @@ inline const std::string_view C_COMPILER_NAME =
 				switch(mod.type){
 					case ModType::EXE:
 					{
-						out << "build " << std::string(flags["build"]) << "/bin/" << name << ": exe";
+						out << "build " << flags["build"] << "/bin/" << name << ": exe";
 						
 						for(const auto& e: mod.objs) 
 							out << " " << e;
 
 						for(const auto& dep: mod.deps)
-							out << " " << std::string(flags["build"]) << "/lib/lib" << dep << ".a";
+							out << " " << flags["build"] << "/lib/lib" << dep << ".a";
 						
 						out << std::endl;
 
@@ -814,19 +814,19 @@ inline const std::string_view C_COMPILER_NAME =
 					} break;
 					case ModType::LIB:
 					{
-						out << "build " << std::string(flags["build"]) << "/lib/lib" << name << ".a: lib";
+						out << "build " << flags["build"] << "/lib/lib" << name << ".a: lib";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
 
-						out << "build " << std::string(flags["build"]) << "/lib/" << name << ".so: dll";
+						out << "build " << flags["build"] << "/lib/" << name << ".so: dll";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
 					} break;
 					case ModType::APP:
 					{
-						out << "build " << std::string(flags["build"]) << "/app/" << name << ".so: dll";
+						out << "build " << flags["build"] << "/app/" << name << ".so: dll";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
@@ -834,7 +834,6 @@ inline const std::string_view C_COMPILER_NAME =
 				}
 			}
 				
-				// std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 			return 0;
 		}
 
@@ -844,6 +843,126 @@ inline const std::string_view C_COMPILER_NAME =
 				return 1;
 
 			int ret = ninja(out);
+
+			out.close();
+
+			return ret;
+		}
+
+		inline int makefile(std::ostream& out){
+			std::unordered_set<std::string> dirs;
+			if(hasExe) dirs.insert(std::string(flags["build"]) + "/bin");
+			if(hasLib) dirs.insert(std::string(flags["build"]) + "/lib");
+			if(hasApp) dirs.insert(std::string(flags["build"]) + "/app");
+
+			out << ".DEFAULT_GOAL: all" << std::endl;
+			out << ".MAIN: all" << std::endl;
+			out << ".PHONY: default_goal" << std::endl;
+			out << "default_goal: all" << std::endl;
+			out << std::endl;
+
+			for(auto& [name, mod]: mods){
+				mod.objs.clear();
+				for(const auto& file: mod.dir.files()){
+					std::string ext = file.path.extension();
+					if(!ext.empty()) for(const auto& cmd: mod.cmds){
+						if(cmds[cmd].ext == ext){
+							std::string obj = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
+							mod.objs.push_back(obj);
+							dirs.insert(obj.substr(0, obj.find_last_of('/')));
+							out << obj << ": " << file.path.string() << std::endl;
+							out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+							out << std::endl;
+							break;
+						}
+					}
+				}
+			}
+
+			for(const auto& [name, mod]: mods){
+				out << ".PHONY: " << name << std::endl;
+				switch(mod.type){
+					case ModType::EXE:
+					{
+						out << name << ": " << flags["build"] << "/bin/" << name << std::endl;
+						out << flags["build"] << "/bin/" << name << ":";
+						
+						for(const auto& e: mod.objs) 
+							out << " " << e;
+
+						for(const auto& dep: mod.deps)
+							out << " " << flags["build"] << "/lib/lib" << dep << ".a";
+						
+						out << std::endl;
+
+						out << "\t" << cmds["exe"].compile({
+								{"in", {"$^"}},
+								{"out", {"$@"}},
+								{"flags", std::vector<std::string>(mod.flags.begin(), mod.flags.end())}}).str() << std::endl;
+						out << std::endl;
+
+					} break;
+					case ModType::LIB:
+					{
+						out << name << ": " << flags["build"] << "/lib/lib" << name << ".a " << flags["build"] << "/lib/" << name << ".so" << std::endl;
+						out << flags["build"] << "/lib/lib" << name << ".a:";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+
+						out << "\t" << cmds["lib"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+						out << std::endl;
+
+						out << flags["build"] << "/lib/" << name << ".so:";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+						
+						out << "\t" << cmds["dll"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+						out << std::endl;
+					} break;
+					case ModType::APP:
+					{
+						out << name << ": " << flags["build"] << "/lib/" << name << ".so" << std::endl;
+						out << flags["build"] << "/app/" << name << ".so:";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+
+						out << "\t" << cmds["dll"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+						out << std::endl;
+					} break;
+				}
+			}
+
+			out << "dirs :=";
+			for(const auto& dir: dirs)
+				out << " " << dir;
+			out << std::endl;
+			out << std::endl;
+			out << ".PHONY: all" << std::endl;
+			out << "all: $(dirs)";
+			for(const auto& [name, mod]: mods)
+				out << " " << name;
+			out << std::endl;
+			out << std::endl;
+			out << "$(dirs):" << std::endl;
+			out << "\tmkdir -p $@" << std::endl;
+			out << std::endl;
+			out << ".PHONY: clean" << std::endl;
+			out << "clean:" << std::endl;
+			out << "\t$(RM) -r " << flags["build"] << std::endl;
+			out << std::endl;
+				
+			return 0;
+		}
+
+		inline int makefile(){
+			std::ofstream out("Makefile");
+			if(!out)
+				return 1;
+
+			int ret = makefile(out);
 
 			out.close();
 
