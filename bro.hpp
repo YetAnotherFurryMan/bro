@@ -473,7 +473,6 @@ inline const std::string_view C_COMPILER_NAME =
 		File header;
 		File src;
 		File exe;
-		std::vector<std::string_view> args;
 		std::unordered_map<std::string, CmdTmpl> cmds;
 		std::unordered_map<std::string, Mod> mods;
 		std::unordered_map<std::string_view, std::string_view> flags;
@@ -514,20 +513,22 @@ inline const std::string_view C_COMPILER_NAME =
 		
 		Bro(int argc, const char** argv, std::filesystem::path src = __builtin_FILE()):
 			src{src},
-			exe{argv[0]},
-			args{argv + 1, argv + argc}
+			exe{argv[0]}
 		{
 			_setup_default();
 
-			for(size_t i = 0; i < args.size();){
-				auto eq = args[i].find('=');
+			for(size_t i = 1; i < argc; i++){
+				std::string_view arg = argv[i];
+				auto eq = arg.find('=');
 				if(eq != std::string_view::npos){
-					std::string_view name = args[i].substr(0, eq);
-					std::string_view value = args[i].substr(eq + 1);
+					std::string_view name = arg.substr(0, eq);
+					std::string_view value = arg.substr(eq + 1);
 					flags[name] = value;
-					args.erase(args.begin() + i);
+				} else if(arg[0] == '-'){
+					std::string_view name = arg.substr(1, -1);
+					flags[name] = "no";
 				} else {
-					i++;
+					flags[arg] = "yes";
 				}
 			}
 		}
@@ -545,8 +546,7 @@ inline const std::string_view C_COMPILER_NAME =
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				std::string command[] = {std::string(flags["cxx"]), "-o", exe.path, src.path};
-				Cmd cmd(command, 4);
+				Cmd cmd({std::string(flags["cxx"]), "-o", exe.path, src.path});
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
@@ -555,8 +555,36 @@ inline const std::string_view C_COMPILER_NAME =
 				// Run
 				cmd.cmd.clear();
 				cmd.cmd.push_back(exe.path);
+				for(const auto& [name, value]: flags)
+					cmd.cmd.push_back(std::string(name) + "=" + std::string(value));
 				std::exit(cmd.sync(log));
 			}
+		}
+
+		inline bool hasFlag(std::string_view name){
+			return flags.find(name) != flags.end();
+		}
+
+		inline std::string getFlag(std::string_view name, std::string_view dflt = ""){
+			if(!hasFlag(name))
+				return std::string(dflt);
+			
+			return std::string(flags[name]);
+		}
+
+		inline bool setFlag(std::string_view name, std::string_view value = "yes", bool force = true){
+			if(!force && hasFlag(name))
+				return false;
+
+			flags[name] = value;
+			return true;
+		}
+
+		inline bool isFlagSet(std::string_view name, bool dflt = false){
+			if(!hasFlag(name))
+				return dflt;
+
+			return flags[name] != "no" || flags[name] != "0";
 		}
 
 		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd){
