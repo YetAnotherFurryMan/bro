@@ -11,8 +11,8 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Header: {}", bro.header);
 
-	bro.registerCmd("g++", ".cpp", {"g++", "-c", "$in", "-o", "$out"});
-	bro.registerCmd("gcc", ".c", {"gcc", "-c", "$in", "-o", "$out"});
+	bro.registerCmd("cxx", ".cpp", {"g++", "-c", "$in", "-o", "$out"});
+	bro.registerCmd("cc", ".c", {"gcc", "-c", "$in", "-o", "$out"});
 
 	bro::CmdTmpl run({"./$in"});
 
@@ -20,7 +20,7 @@ int main(int argc, const char** argv){
 	bro::Directory mod("src/mod");
 
 	bro.registerModule(bro::ModType::EXE, "mod");
-	bro.use("mod", "g++");
+	bro.use("mod", "cxx");
 	bro.link("mod", "-lstdc++");
 
 	{
@@ -67,13 +67,17 @@ int main(int argc, const char** argv){
 		mod_bye << "#include <stdio.h>\nvoid bye(){printf(\"Hello from bye()\\n\");}";
 		mod_bye.close();
 
-		bro.use("mod", "gcc");
+		bro.use("mod", "cc");
 		bro.build();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-	std::filesystem::remove_all("src");
-	std::filesystem::remove_all("build");
+	bro.ninja();
+
+	if(bro.flags.find("save") == bro.flags.end()){
+		std::filesystem::remove_all("src");
+		std::filesystem::remove_all("build");
+	}
 
 	bro.log.info("Cmds: {}", bro.cmds.size());
 	for(const auto& [key, val]: bro.cmds){

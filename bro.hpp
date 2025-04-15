@@ -28,6 +28,7 @@
 #include <vector>
 #include <future>
 #include <sstream>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <algorithm>
@@ -245,7 +246,11 @@ inline const std::string_view C_COMPILER_NAME =
 		inline std::string str(){
 			std::stringstream ss;
 			for(const auto& e: cmd){
-				ss << " " << std::quoted(e);
+				if(e.find('"') != std::string::npos ||
+				   e.find(' ') != std::string::npos)
+					ss << " " << std::quoted(e);
+				else
+					ss << " " << e;
 			}
 
 			return ss.str().substr(1);
@@ -484,6 +489,14 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar";
 			flags["build"] = "build";
+
+			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
+			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
+			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
+
+			registerCmd("lib", lib);
+			registerCmd("dll", dll);
+			registerCmd("exe", exe);
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -620,10 +633,6 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline int build(){
-			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
-			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
-
 			std::filesystem::create_directory(flags["build"]);
 			if(hasExe) std::filesystem::create_directory(std::string(flags["build"]) + "/bin");
 			if(hasLib) std::filesystem::create_directory(std::string(flags["build"]) + "/lib");
@@ -643,7 +652,7 @@ inline const std::string_view C_COMPILER_NAME =
 				mod.objs.clear();
 				for(const auto& file: mod.dir.files()){
 					std::string ext = file.path.extension();
-					for(const auto& cmd: mod.cmds){
+					if(!ext.empty()) for(const auto& cmd: mod.cmds){
 						if(cmds[cmd].ext == ext){
 							std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
 							mod.objs.push_back(out);
@@ -654,6 +663,8 @@ inline const std::string_view C_COMPILER_NAME =
 											{"in", {file.path.string()}}
 										}));
 							}
+
+							break;
 						}
 					}
 				}
@@ -670,11 +681,11 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				if(mod.needsLinkage){
-					pool.push(lib.compile({
+					pool.push(cmds["lib"].compile({
 								{"out", {std::string(flags["build"]) + "/lib/lib" + name + ".a"}},
 								{"in", mod.objs}
 							}));
-					pool.push(dll.compile({
+					pool.push(cmds["dll"].compile({
 								{"out", {std::string(flags["build"]) + "/lib/" + name + ".so"}},
 								{"in", mod.objs}
 							}));
@@ -697,7 +708,7 @@ inline const std::string_view C_COMPILER_NAME =
 				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 
 				if(mod.needsLinkage){
-					pool.push(exe.compile({
+					pool.push(cmds["exe"].compile({
 								{"out", {std::string(this->flags["build"]) + "/bin/" + name}},
 								{"in", mod.objs},
 								{"flags", flags}
@@ -716,7 +727,7 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				if(mod.needsLinkage){
-					pool.push(dll.compile({
+					pool.push(cmds["dll"].compile({
 								{"out", {std::string(flags["build"]) + "/app/" + name + ".so"}}, 
 								{"in", mod.objs}
 							}));
@@ -727,6 +738,88 @@ inline const std::string_view C_COMPILER_NAME =
 				return ret;
 
 			return 0;
+		}
+
+		inline int ninja(std::ostream& out){
+			for(const auto& [name, tmpl]: cmds){
+				out << "rule " << name << std::endl;
+				out << "  command = " << tmpl.compile().str() << std::endl;
+				out << std::endl;
+			}
+
+			for(auto& [name, mod]: mods){
+				mod.objs.clear();
+				for(const auto& file: mod.dir.files()){
+					std::string ext = file.path.extension();
+					if(!ext.empty()) for(const auto& cmd: mod.cmds){
+						if(cmds[cmd].ext == ext){
+							std::string obj = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
+							mod.objs.push_back(obj);
+							out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
+							out << std::endl;
+							break;
+						}
+					}
+				}
+			}
+
+			for(const auto& [name, mod]: mods){
+				switch(mod.type){
+					case ModType::EXE:
+					{
+						out << "build " << std::string(flags["build"]) << "/bin/" << name << ": exe";
+						
+						for(const auto& e: mod.objs) 
+							out << " " << e;
+
+						for(const auto& dep: mod.deps)
+							out << " " << std::string(flags["build"]) << "/lib/lib" << dep << ".a";
+						
+						out << std::endl;
+
+						if(!mod.flags.empty()){
+							out << "  flags = ";
+							for(const auto& e: mod.flags)
+								out << " " << e;
+							out << std::endl;
+						}
+					} break;
+					case ModType::LIB:
+					{
+						out << "build " << std::string(flags["build"]) << "/lib/lib" << name << ".a: lib";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+
+						out << "build " << std::string(flags["build"]) << "/lib/" << name << ".so: dll";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+					} break;
+					case ModType::APP:
+					{
+						out << "build " << std::string(flags["build"]) << "/app/" << name << ".so: dll";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+					} break;
+				}
+			}
+				
+				// std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
+			return 0;
+		}
+
+		inline int ninja(){
+			std::ofstream out("build.ninja");
+			if(!out)
+				return 1;
+
+			int ret = ninja(out);
+
+			out.close();
+
+			return ret;
 		}
 	};
 
