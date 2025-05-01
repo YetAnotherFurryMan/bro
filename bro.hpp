@@ -714,10 +714,13 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				if(mod.needsLinkage){
+					std::string dot_a = std::string(flags["build"]) + "/lib/lib" + name + ".a";
+					std::filesystem::remove(dot_a);
 					pool.push(cmds["lib"].compile({
-								{"out", {std::string(flags["build"]) + "/lib/lib" + name + ".a"}},
+								{"out", {dot_a}},
 								{"in", mod.objs}
 							}));
+					// TODO: What about .dll?
 					pool.push(cmds["dll"].compile({
 								{"out", {std::string(flags["build"]) + "/lib/" + name + ".so"}},
 								{"in", mod.objs}
@@ -735,8 +738,12 @@ inline const std::string_view C_COMPILER_NAME =
 				if(mod.type != ModType::EXE)
 					continue;
 
-				for(const auto& dep: mod.deps)
+				for(const auto& dep: mod.deps){
+					if(mods[dep].needsLinkage)
+						mod.needsLinkage = true;
+
 					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + ".a");
+				}
 
 				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
 
