@@ -6,6 +6,7 @@ int main(int argc, const char** argv){
 	bro::Bro bro(argc, argv);
 	
 	bro.log.info("Fresh: {}", bro.isFresh());
+	bro.log.info("Has ~FRESH: {}", bro.hasFlag("~FRESH"));
 	
 	bro.fresh();
 

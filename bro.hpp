@@ -534,6 +534,8 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline bool isFresh(){
+			if(hasFlag("~FRESH"))
+				return isFlagSet("~FRESH");
 			return !(src > exe || header > exe);
 		}
 
@@ -555,8 +557,11 @@ inline const std::string_view C_COMPILER_NAME =
 				// Run
 				cmd.cmd.clear();
 				cmd.cmd.push_back(exe.path);
-				for(const auto& [name, value]: flags)
-					cmd.cmd.push_back(std::string(name) + "=" + std::string(value));
+				for(const auto& [name, value]: flags){
+					if(name[0] != '~')
+						cmd.cmd.push_back(std::string(name) + "=" + std::string(value));
+				}
+
 				std::exit(cmd.sync(log));
 			}
 		}
@@ -584,7 +589,7 @@ inline const std::string_view C_COMPILER_NAME =
 			if(!hasFlag(name))
 				return dflt;
 
-			return flags[name] != "no" || flags[name] != "0";
+			return flags[name] != "no" && flags[name] != "0";
 		}
 
 		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd){
