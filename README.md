@@ -8,9 +8,9 @@ Simply create a file `bro.cpp`, include there `bro.hpp`, describe your project (
 - [x] Run commands (sync/async)
 - [x] Command pools and queues
 - [x] Build a modular project
-- [ ] Build a project where modules depends on each other
-- [ ] Build a project where modules depends on external modules (np. local libraries)
+- [x] Build a project where modules depends on each other
+- [x] Build a project where modules depends on external modules (np. local libraries)
 - [ ] Download external dependencies from git(hub)
 - [ ] App+engine project model
-- [ ] Command-line flags
-- [ ] Choose between clang and gcc via flags
+- [x] Command-line flags
+- [x] Choose between clang and gcc via flags
