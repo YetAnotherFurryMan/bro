@@ -33,7 +33,7 @@ int main(int argc, const char** argv){
 		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
 		mod_hello.close();
 
-		bro.build();
+		bro.run();
 
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
@@ -47,13 +47,13 @@ int main(int argc, const char** argv){
 		mod_bye << "#include <iostream>\nvoid bye(){std::cout << \"Hello from bye()\" << std::endl;}";
 		mod_bye.close();
 
-		bro.build();
+		bro.run();
 
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	{
-		bro.build();
+		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
@@ -69,7 +69,7 @@ int main(int argc, const char** argv){
 		mod_bye.close();
 
 		bro.use("mod", "cc");
-		bro.build();
+		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 

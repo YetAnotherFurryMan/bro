@@ -457,6 +457,7 @@ inline const std::string_view C_COMPILER_NAME =
 		Directory dir;
 
 		bool needsLinkage = false;
+		bool disabled = false;
 		std::vector<std::string> objs;
 
 		Mod() = default;
@@ -676,6 +677,9 @@ inline const std::string_view C_COMPILER_NAME =
 			// TODO: Make CmdPool Runnable and q it with linkage
 			CmdPool pool;
 			for(auto& [name, mod]: mods){
+				if(mod.disabled)
+					break;
+
 				log.info("Module {}", name);
 
 				if((ret = mod.dir.copyTree(log, std::string(flags["build"]) + "/obj/" + name)))
@@ -778,6 +782,23 @@ inline const std::string_view C_COMPILER_NAME =
 				return ret;
 
 			return 0;
+		}
+
+		inline int run(){
+			bool dflt = false;
+			for(auto& [name, mod]: mods){
+				if(isFlagSet(name)){
+					dflt = true;
+					break;
+				}
+			}
+
+			for(auto& [name, mod]: mods){
+				// What about ~[name]
+				mod.disabled = !isFlagSet(name, !dflt);
+			}
+
+			return build();
 		}
 
 		inline int ninja(std::ostream& out){
