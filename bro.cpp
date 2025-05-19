@@ -73,12 +73,31 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-	bro.ninja();
-	bro.makefile();
+	{
+		std::filesystem::remove_all("build");
+		bro.ninja();
+
+		bro::CmdTmpl ninja({"ninja"});
+		ninja.sync(bro.log);
+		
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
+	}
+
+	{
+		std::filesystem::remove_all("build");
+		bro.makefile();
+
+		bro::CmdTmpl make({"make"});
+		make.sync(bro.log);
+		
+		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
+	}
 
 	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");
 		std::filesystem::remove_all("build");
+		std::filesystem::remove("build.ninja");
+		std::filesystem::remove("Makefile");
 	}
 
 	bro.log.info("Cmds: {}", bro.cmds.size());
