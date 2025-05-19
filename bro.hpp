@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+// TODO: Write a function for space escaping
+
 #pragma once
 
 #include <array>
@@ -175,6 +177,8 @@ inline const std::string_view C_COMPILER_NAME =
 		Directory(std::filesystem::path p): File{p} {}
 
 		inline int copyTree(Log& log, std::filesystem::path p) const {
+			log.info("Copying tree {} => {}", path, p);
+
 			if(!exists){
 				log.error("File does not exist {}", path);
 				return 1;
@@ -454,7 +458,8 @@ inline const std::string_view C_COMPILER_NAME =
 		std::unordered_set<std::string> cmds;
 		std::unordered_set<std::string> deps;
 		std::unordered_set<std::string> flags;
-		Directory dir;
+		std::vector<Directory> dirs;
+		std::vector<File> files;
 
 		bool needsLinkage = false;
 		bool disabled = false;
@@ -465,7 +470,10 @@ inline const std::string_view C_COMPILER_NAME =
 		Mod(ModType type, std::string_view name):
 			type{type}, name{name}
 		{
-			dir = Directory("src/" + this->name);
+			Directory src("src/" + this->name);
+			if(src.exists){
+				dirs.push_back(src);
+			}
 		}
 	};
 
@@ -666,6 +674,42 @@ inline const std::string_view C_COMPILER_NAME =
 			return false;
 		}
 
+		inline bool addDirectory(std::string_view mod, Directory dir){
+			std::string m(mod);
+
+			if(mods.find(m) == mods.end())
+				return true;
+
+			if(!dir.exists)
+				return true;
+
+			mods[m].dirs.push_back(dir);
+
+			return false;
+		}
+
+		inline bool addDirectory(std::string_view mod, std::string_view dir){
+			return addDirectory(mod, Directory(dir));
+		}
+
+		inline bool addFile(std::string_view mod, File file){
+			std::string m(mod);
+
+			if(mods.find(m) == mods.end())
+				return true;
+
+			if(!file.exists)
+				return true;
+
+			mods[m].files.push_back(file);
+
+			return false;
+		}
+
+		inline bool addFile(std::string_view mod, std::string_view file){
+			return addFile(mod, File(file));
+		}
+
 		inline int build(){
 			std::filesystem::create_directory(flags["build"]);
 			if(hasExe) std::filesystem::create_directory(std::string(flags["build"]) + "/bin");
@@ -682,26 +726,52 @@ inline const std::string_view C_COMPILER_NAME =
 
 				log.info("Module {}", name);
 
-				if((ret = mod.dir.copyTree(log, std::string(flags["build"]) + "/obj/" + name)))
-					return ret;
-
 				mod.needsLinkage = false;
 				mod.objs.clear();
-				for(const auto& file: mod.dir.files()){
-					std::string ext = file.path.extension();
-					if(!ext.empty()) for(const auto& cmd: mod.cmds){
-						if(cmds[cmd].ext == ext){
-							std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
-							mod.objs.push_back(out);
-							if(!(File(out) > file)){
-								mod.needsLinkage = true;
-								pool.push(cmds[cmd].compile({
-											{"out", {out}}, 
-											{"in", {file.path.string()}}
-										}));
-							}
 
-							break;
+				for(const auto& dir: mod.dirs){
+					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.path.filename().string())))
+						return ret;
+			
+					for(const auto& file: dir.files()){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
+								mod.objs.push_back(out);
+								if(!(File(out) > file)){
+									mod.needsLinkage = true;
+									pool.push(cmds[cmd].compile({
+												{"out", {out}}, 
+												{"in", {file.path.string()}}
+											}));
+								}
+
+								break;
+							}
+						}
+					}
+				}
+
+				if(!mod.files.empty()){
+					std::filesystem::create_directory(std::string(flags["build"]) + "/obj/" + name + " files");
+					std::size_t index = 0;
+					for(const auto& file: mod.files){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + ".o";
+								mod.objs.push_back(out);
+								if(!(File(out) > file)){
+									mod.needsLinkage = true;
+									pool.push(cmds[cmd].compile({
+												{"out", {out}}, 
+												{"in", {file.path.string()}}
+											}));
+								}
+
+								break;
+							}
 						}
 					}
 				}
@@ -810,15 +880,34 @@ inline const std::string_view C_COMPILER_NAME =
 
 			for(auto& [name, mod]: mods){
 				mod.objs.clear();
-				for(const auto& file: mod.dir.files()){
-					std::string ext = file.path.extension();
-					if(!ext.empty()) for(const auto& cmd: mod.cmds){
-						if(cmds[cmd].ext == ext){
-							std::string obj = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
-							mod.objs.push_back(obj);
-							out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
-							out << std::endl;
-							break;
+
+				for(const auto& dir: mod.dirs){
+					for(const auto& file: dir.files()){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + ".o";
+								mod.objs.push_back(obj);
+								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
+								out << std::endl;
+								break;
+							}
+						}
+					}
+				}
+
+				if(!mod.files.empty()){
+					std::size_t index = 0;
+					for(const auto& file: mod.files){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + ".o";
+								mod.objs.push_back(obj);
+								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
+								out << std::endl;
+								break;
+							}
 						}
 					}
 				}
@@ -896,17 +985,36 @@ inline const std::string_view C_COMPILER_NAME =
 
 			for(auto& [name, mod]: mods){
 				mod.objs.clear();
-				for(const auto& file: mod.dir.files()){
-					std::string ext = file.path.extension();
-					if(!ext.empty()) for(const auto& cmd: mod.cmds){
-						if(cmds[cmd].ext == ext){
-							std::string obj = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
-							mod.objs.push_back(obj);
-							dirs.insert(obj.substr(0, obj.find_last_of('/')));
-							out << obj << ": " << file.path.string() << std::endl;
-							out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-							out << std::endl;
-							break;
+				for(const auto& dir: mod.dirs){
+					for(const auto& file: dir.files()){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + ".o";
+								mod.objs.push_back(obj);
+								dirs.insert(obj.substr(0, obj.find_last_of('/')));
+								out << obj << ": " << file.path.string() << std::endl;
+								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+								out << std::endl;
+								break;
+							}
+						}
+					}
+				}
+
+				if(!mod.files.empty()){
+					for(const auto& file: mod.files){
+						std::string ext = file.path.extension();
+						if(!ext.empty()) for(const auto& cmd: mod.cmds){
+							if(cmds[cmd].ext == ext){
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + ".o";
+								mod.objs.push_back(obj);
+								dirs.insert(obj.substr(0, obj.find_last_of('/')));
+								out << obj << ": " << file.path.string() << std::endl;
+								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+								out << std::endl;
+								break;
+							}
 						}
 					}
 				}
