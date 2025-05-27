@@ -489,6 +489,16 @@ inline const std::string_view C_COMPILER_NAME =
 		bool hasLib = false;
 		bool hasApp = false;
 
+		inline void _setup_cmds(){
+			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
+			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
+			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
+
+			registerCmd("lib", lib, true);
+			registerCmd("dll", dll, true);
+			registerCmd("exe", exe, true);
+		}
+
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
 			header = File(header_path);
@@ -498,13 +508,7 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ar"] = "ar";
 			flags["build"] = "build";
 
-			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
-			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
-
-			registerCmd("lib", lib);
-			registerCmd("dll", dll);
-			registerCmd("exe", exe);
+			_setup_cmds();
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -601,10 +605,10 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags[name] != "no" && flags[name] != "0";
 		}
 
-		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd){
+		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
 			std::string n(name);
 
-			if(cmds.find(n) != cmds.end())
+			if(!force && cmds.find(n) != cmds.end())
 				return true;
 
 			cmds[n] = cmd;
