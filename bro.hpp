@@ -449,6 +449,7 @@ inline const std::string_view C_COMPILER_NAME =
 	enum class ModType{
 		EXE,
 		LIB,
+		STATIC,
 		APP
 	};
 
@@ -636,6 +637,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 			switch(type){
 				case ModType::EXE: hasExe = true; break;
+				case ModType::STATIC:
 				case ModType::LIB: hasLib = true; break;
 				case ModType::APP: hasApp = true; break;
 			}
@@ -788,7 +790,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 			// Link libs
 			for(const auto& [name, mod]: mods){
-				if(mod.type != ModType::LIB)
+				if(mod.type != ModType::LIB && mod.type != ModType::STATIC)
 					continue;
 
 				if(mod.needsLinkage){
@@ -799,7 +801,8 @@ inline const std::string_view C_COMPILER_NAME =
 								{"in", mod.objs}
 							}));
 					// TODO: What about .dll?
-					pool.push(cmds["dll"].compile({
+					if(mod.type != ModType::STATIC) 
+						pool.push(cmds["dll"].compile({
 								{"out", {std::string(flags["build"]) + "/lib/" + name + ".so"}},
 								{"in", mod.objs}
 							}));
@@ -950,6 +953,13 @@ inline const std::string_view C_COMPILER_NAME =
 							out << " " << e;
 						out << std::endl;
 					} break;
+					case ModType::STATIC:
+					{
+						out << "build " << flags["build"] << "/lib/lib" << name << ".a: lib";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+					} break;
 					case ModType::APP:
 					{
 						out << "build " << flags["build"] << "/app/" << name << ".so: dll";
@@ -1064,6 +1074,17 @@ inline const std::string_view C_COMPILER_NAME =
 						out << std::endl;
 						
 						out << "\t" << cmds["dll"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
+						out << std::endl;
+					} break;
+					case ModType::STATIC:
+					{
+						out << name << ": " << flags["build"] << "/lib/lib" << name << ".a " << flags["build"] << "/lib/" << name << ".so" << std::endl;
+						out << flags["build"] << "/lib/lib" << name << ".a:";
+						for(const auto& e: mod.objs)
+							out << " " << e;
+						out << std::endl;
+
+						out << "\t" << cmds["lib"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
 						out << std::endl;
 					} break;
 					case ModType::APP:
