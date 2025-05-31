@@ -661,7 +661,7 @@ inline const std::string_view C_COMPILER_NAME =
 			std::string m(mod);
 			std::string l(lib);
 
-			if(mods.find(m) == mods.end() || mods.find(l) == mods.end() || mods[l].type != ModType::LIB)
+			if(mods.find(m) == mods.end() || mods.find(l) == mods.end() || (mods[l].type != ModType::LIB && mods[l].type != ModType::STATIC))
 				return true;
 
 			mods[m].deps.insert(l);
