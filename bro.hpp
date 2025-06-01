@@ -508,6 +508,9 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar";
 			flags["build"] = "build";
+			flags[".o"] = ".o";
+			flags[".a"] = ".a";
+			flags[".so"] = ".so";
 
 			_setup_cmds();
 		}
@@ -743,7 +746,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + ".o";
+								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + getFlag(".o");
 								mod.objs.push_back(out);
 								if(!(File(out) > file)){
 									mod.needsLinkage = true;
@@ -766,7 +769,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + ".o";
+								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + getFlag(".o");
 								mod.objs.push_back(out);
 								if(!(File(out) > file)){
 									mod.needsLinkage = true;
@@ -794,7 +797,7 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 
 				if(mod.needsLinkage){
-					std::string dot_a = std::string(flags["build"]) + "/lib/lib" + name + ".a";
+					std::string dot_a = std::string(flags["build"]) + "/lib/lib" + name + getFlag(".a");
 					std::filesystem::remove(dot_a);
 					pool.push(cmds["lib"].compile({
 								{"out", {dot_a}},
@@ -803,7 +806,7 @@ inline const std::string_view C_COMPILER_NAME =
 					// TODO: What about .dll?
 					if(mod.type != ModType::STATIC) 
 						pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/lib/" + name + ".so"}},
+								{"out", {std::string(flags["build"]) + "/lib/" + name + getFlag(".so")}},
 								{"in", mod.objs}
 							}));
 				}
@@ -823,7 +826,7 @@ inline const std::string_view C_COMPILER_NAME =
 					if(mods[dep].needsLinkage)
 						mod.needsLinkage = true;
 
-					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + ".a");
+					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + getFlag(".a"));
 				}
 
 				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
@@ -849,7 +852,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 				if(mod.needsLinkage){
 					pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/app/" + name + ".so"}}, 
+								{"out", {std::string(flags["build"]) + "/app/" + name + getFlag(".so")}}, 
 								{"in", mod.objs}
 							}));
 				}
@@ -893,7 +896,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + ".o";
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
 								out << std::endl;
@@ -909,7 +912,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + ".o";
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + getFlag(".o");
 								mod.objs.push_back(obj);
 								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
 								out << std::endl;
@@ -930,7 +933,7 @@ inline const std::string_view C_COMPILER_NAME =
 							out << " " << e;
 
 						for(const auto& dep: mod.deps)
-							out << " " << flags["build"] << "/lib/lib" << dep << ".a";
+							out << " " << flags["build"] << "/lib/lib" << dep << getFlag(".a");
 						
 						out << std::endl;
 
@@ -943,26 +946,26 @@ inline const std::string_view C_COMPILER_NAME =
 					} break;
 					case ModType::LIB:
 					{
-						out << "build " << flags["build"] << "/lib/lib" << name << ".a: lib";
+						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
 
-						out << "build " << flags["build"] << "/lib/" << name << ".so: dll";
+						out << "build " << flags["build"] << "/lib/" << name << getFlag(".so") << ": dll";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
 					} break;
 					case ModType::STATIC:
 					{
-						out << "build " << flags["build"] << "/lib/lib" << name << ".a: lib";
+						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
 					} break;
 					case ModType::APP:
 					{
-						out << "build " << flags["build"] << "/app/" << name << ".so: dll";
+						out << "build " << flags["build"] << "/app/" << name << getFlag(".so") << ": dll";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
@@ -1004,7 +1007,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + ".o";
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
 								out << obj << ": " << file.path.string() << std::endl;
@@ -1021,7 +1024,7 @@ inline const std::string_view C_COMPILER_NAME =
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].ext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + ".o";
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
 								out << obj << ": " << file.path.string() << std::endl;
@@ -1046,7 +1049,7 @@ inline const std::string_view C_COMPILER_NAME =
 							out << " " << e;
 
 						for(const auto& dep: mod.deps)
-							out << " " << flags["build"] << "/lib/lib" << dep << ".a";
+							out << " " << flags["build"] << "/lib/lib" << dep << getFlag(".a");
 						
 						out << std::endl;
 
@@ -1059,8 +1062,8 @@ inline const std::string_view C_COMPILER_NAME =
 					} break;
 					case ModType::LIB:
 					{
-						out << name << ": " << flags["build"] << "/lib/lib" << name << ".a " << flags["build"] << "/lib/" << name << ".so" << std::endl;
-						out << flags["build"] << "/lib/lib" << name << ".a:";
+						out << name << ": " << flags["build"] << "/lib/lib" << name << getFlag(".a") << " " << flags["build"] << "/lib/" << name << getFlag(".so") << std::endl;
+						out << flags["build"] << "/lib/lib" << name << getFlag(".a") << ":";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
@@ -1068,7 +1071,7 @@ inline const std::string_view C_COMPILER_NAME =
 						out << "\t" << cmds["lib"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
 						out << std::endl;
 
-						out << flags["build"] << "/lib/" << name << ".so:";
+						out << flags["build"] << "/lib/" << name << getFlag(".so") << ":";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
@@ -1078,8 +1081,8 @@ inline const std::string_view C_COMPILER_NAME =
 					} break;
 					case ModType::STATIC:
 					{
-						out << name << ": " << flags["build"] << "/lib/lib" << name << ".a " << flags["build"] << "/lib/" << name << ".so" << std::endl;
-						out << flags["build"] << "/lib/lib" << name << ".a:";
+						out << name << ": " << flags["build"] << "/lib/lib" << name << getFlag(".a") << std::endl;
+						out << flags["build"] << "/lib/lib" << name << getFlag(".a") << ":";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
@@ -1089,8 +1092,8 @@ inline const std::string_view C_COMPILER_NAME =
 					} break;
 					case ModType::APP:
 					{
-						out << name << ": " << flags["build"] << "/lib/" << name << ".so" << std::endl;
-						out << flags["build"] << "/app/" << name << ".so:";
+						out << name << ": " << flags["build"] << "/lib/" << name << getFlag(".so") << std::endl;
+						out << flags["build"] << "/app/" << name << getFlag(".so") << ":";
 						for(const auto& e: mod.objs)
 							out << " " << e;
 						out << std::endl;
