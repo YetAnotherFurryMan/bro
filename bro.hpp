@@ -466,15 +466,9 @@ inline const std::string_view C_COMPILER_NAME =
 		std::vector<std::string> objs;
 
 		Mod() = default;
-
-		Mod(ModType type, std::string_view name):
+		Mod(ModType type):
 			type{type}
-		{
-			Directory src("src/" + std::string{name});
-			if(src.exists){
-				dirs.push_back(src);
-			}
-		}
+		{}
 	};
 
 	struct Bro{
@@ -631,7 +625,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return registerCmd(name, CmdTmpl{ext, cmd});
 		}
 
-		inline bool registerModule(ModType type, std::string_view name){
+		inline bool registerModule(ModType type, std::string_view name, bool src = true){
 			std::string n(name);
 
 			if(mods.find(n) != mods.end())
@@ -644,8 +638,16 @@ inline const std::string_view C_COMPILER_NAME =
 				case ModType::APP: hasApp = true; break;
 			}
 
-			mods.emplace(n, Mod{type, name});
-			return false;
+			auto [it, ins] = mods.emplace(n, Mod{type});
+
+			if(src){
+				Directory d("src/" + std::string{name});
+				if(d.exists){
+					(*it).second.dirs.push_back(d);
+				}
+			}
+
+			return ins;
 		}
 
 		inline bool use(std::string_view mod, std::string_view cmd){
