@@ -12,8 +12,8 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Header: {}", bro.header);
 
-	bro.registerCmd("cxx", ".cpp", {"g++", "-c", "$in", "-o", "$out"});
-	bro.registerCmd("cc", ".c", {"gcc", "-c", "$in", "-o", "$out"});
+	bro.registerCmd("cxx", ".cpp", ".cpp.o", {"g++", "-c", "$in", "-o", "$out"});
+	bro.registerCmd("cc", ".c", ".c.o", {"gcc", "-c", "$in", "-o", "$out"});
 
 	bro::CmdTmpl run({"./$in"});
 

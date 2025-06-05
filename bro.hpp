@@ -276,7 +276,8 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
-		std::string ext;
+		std::string inext;
+		std::string outext;
 		std::vector<std::string> cmd;
 
 		CmdTmpl() = default;
@@ -294,19 +295,22 @@ inline const std::string_view C_COMPILER_NAME =
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		CmdTmpl(std::string_view ext, const std::string* cmd, std::size_t cmd_size):
-			ext{ext},
+		CmdTmpl(std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size):
+			inext{inext},
+			outext{outext},
 			cmd{cmd, cmd + cmd_size}
 		{}
 
-		CmdTmpl(std::string_view ext, const std::vector<std::string>& cmd):
-			ext{ext},
+		CmdTmpl(std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd):
+			inext{inext},
+			outext{outext},
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		CmdTmpl(std::string_view ext, std::array<std::string, N> cmd):
-			ext{ext},
+		CmdTmpl(std::string_view inext, std::string_view outext, std::array<std::string, N> cmd):
+			inext{inext},
+			outext{outext},
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
@@ -329,7 +333,8 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
 			CmdTmpl ret;
-			ret.ext = this->ext;
+			ret.inext = this->inext;
+			ret.outext = this->outext;
 
 			std::string v_name = "$";
 			v_name += name;
@@ -541,6 +546,8 @@ inline const std::string_view C_COMPILER_NAME =
 					flags[arg] = "yes";
 				}
 			}
+
+			_setup_cmds();
 		}
 
 		inline bool isFresh(){
@@ -612,12 +619,12 @@ inline const std::string_view C_COMPILER_NAME =
 			return false;
 		}
 
-		inline bool registerCmd(std::string_view name, std::string_view ext, const std::string* cmd, std::size_t cmd_size){
-			return registerCmd(name, CmdTmpl{ext, cmd, cmd_size});
+		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size){
+			return registerCmd(name, CmdTmpl{inext, outext, cmd, cmd_size});
 		}
 
-		inline bool registerCmd(std::string_view name, std::string_view ext, const std::vector<std::string>& cmd){
-			return registerCmd(name, CmdTmpl{ext, cmd});
+		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd){
+			return registerCmd(name, CmdTmpl{inext, outext, cmd});
 		}
 
 		template<std::size_t N>
@@ -746,7 +753,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: dir.files()){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + getFlag(".o");
 								mod.objs.push_back(out);
 								if(!(File(out) > file)){
@@ -769,7 +776,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: mod.files){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + getFlag(".o");
 								mod.objs.push_back(out);
 								if(!(File(out) > file)){
@@ -896,7 +903,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: dir.files()){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
@@ -912,7 +919,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: mod.files){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + getFlag(".o");
 								mod.objs.push_back(obj);
 								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
@@ -1007,7 +1014,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: dir.files()){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
@@ -1024,7 +1031,7 @@ inline const std::string_view C_COMPILER_NAME =
 					for(const auto& file: mod.files){
 						std::string ext = file.path.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].ext == ext){
+							if(cmds[cmd].inext == ext){
 								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
