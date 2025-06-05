@@ -455,7 +455,6 @@ inline const std::string_view C_COMPILER_NAME =
 
 	struct Mod{
 		ModType type;
-		std::string name;
 		std::unordered_set<std::string> cmds;
 		std::unordered_set<std::string> deps;
 		std::unordered_set<std::string> flags;
@@ -469,9 +468,9 @@ inline const std::string_view C_COMPILER_NAME =
 		Mod() = default;
 
 		Mod(ModType type, std::string_view name):
-			type{type}, name{name}
+			type{type}
 		{
-			Directory src("src/" + this->name);
+			Directory src("src/" + std::string{name});
 			if(src.exists){
 				dirs.push_back(src);
 			}
@@ -576,7 +575,7 @@ inline const std::string_view C_COMPILER_NAME =
 				cmd.cmd.push_back(exe.path);
 				for(const auto& [name, value]: flags){
 					if(name[0] != '~')
-						cmd.cmd.push_back(std::string(name) + "=" + std::string(value));
+						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
 				}
 
 				std::exit(cmd.sync(log));
