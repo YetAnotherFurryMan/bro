@@ -221,6 +221,15 @@ inline const std::string_view C_COMPILER_NAME =
 
 			return files;
 		}
+
+		inline bool make(Log& log) const {
+			if(exists)
+				return false;
+
+			log.info("Making directory: {}", path);
+			std::filesystem::create_directories(path);
+			return true;
+		}
 	};
 
 	struct Runnable{
@@ -418,7 +427,7 @@ inline const std::string_view C_COMPILER_NAME =
 		inline CmdPoolAsync async(Log& log){
 			CmdPoolAsync pool;
 			for(auto& cmd: *this){
-				pool.push_back(cmd->async(log));
+				pool.emplace_back(cmd->async(log));
 			}
 			return pool;
 		}
