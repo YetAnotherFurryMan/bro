@@ -5,6 +5,7 @@
 struct Module{
 	std::string name;
 	std::vector<bro::File> files;
+	bool disabled = false;
 
 	Module() = default;
 	Module(std::string_view name):
@@ -44,33 +45,65 @@ struct CmdEntry: public bro::Runnable{
 	std::string output;
 	std::vector<std::string> inputs;
 	std::vector<std::string> dependences;
+	bool smart;
 	
 	CmdEntry() = default;
 
-	CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const std::vector<std::string>& cmd):
+	CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const std::vector<std::string>& cmd, bool smart = false):
 		cmd{cmd},
 		output{output},
-		inputs{inputs}
+		inputs{inputs},
+		smart{smart}
 	{}
 
 	template<std::size_t N, std::size_t M>
-	CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const std::array<std::string, M>& cmd):
+	CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const std::array<std::string, M>& cmd, bool smart = false):
 		cmd{cmd},
 		output{output},
-		inputs{inputs.begin(), inputs.end()}
+		inputs{inputs.begin(), inputs.end()},
+		smart{smart}
 	{}
 
 	inline bro::Directory directory() const {
 		return bro::Directory{output.substr(0, output.rfind('/'))};
 	}
 
+	inline bool smartRun(){
+		if(smart){
+			bro::File o(output);
+			if(!o.exists)
+				return true;
+			
+			bool run = false;
+			for(const auto& i: inputs){
+				bro::File f(i);
+				if(f > o){
+					run = true;
+					break;
+				}
+			}
+
+			return run;
+		}
+
+		return true;
+	}
+
 	inline int sync(bro::Log& log) override {
 		directory().make(log);
+		
+		if(!smartRun())
+			return 0;
+
 		return cmd.sync(log);
 	}
 
 	inline std::future<int> async(bro::Log& log) override {
 		directory().make(log);
+
+		if(!smartRun())
+			return std::async(std::launch::async, []{ return 0; });
+		
 		return cmd.async(log);
 	}
 
@@ -126,8 +159,10 @@ struct Transform: public Stage{
 	{}
 
 	virtual std::vector<CmdEntry> apply(Module& mod) override {
-		std::vector<CmdEntry> ret;
+		if(mod.disabled)
+			return {};
 
+		std::vector<CmdEntry> ret;
 		for(const auto& file: mod.files){
 			std::string ext = file.path.extension();
 			if(cmds.find(ext) == cmds.end())
@@ -165,6 +200,9 @@ struct Link: public Stage{
 	{}
 
 	virtual std::vector<CmdEntry> apply(Module& mod) override {
+		if(mod.disabled)
+			return {};
+		
 		CmdEntry ret;
 		ret.output = "build/" + name + "/" + outtmpl;
 		
@@ -231,11 +269,16 @@ int main(int argc, const char** argv){
 		out.add(".cpp", bro.cmds["cxx"]);
 
 		bro::CmdPool pool;
-		for(const auto& cmd: out.apply(mod)){
+		for(auto& cmd: out.apply(mod)){
+			cmd.smart = true;
 			pool.push(cmd);
 		}
 
-		pool.sync(bro.log);
+		pool.async(bro.log).wait();
+
+		system("touch src/mod/hello.cpp");
+
+		pool.async(bro.log).wait();
 
 		Link bin("bin", "$mod");
 		bin.add(".o", bro.cmds["exe"].resolve("flags", "-lstdc++"));
