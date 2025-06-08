@@ -578,6 +578,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 	struct Module{
 		std::string name;
+		// TODO: Make File inherit from std::fs::path and change std::vector to std::unordered_set
 		std::vector<File> files;
 		bool disabled = false;
 	
@@ -721,6 +722,9 @@ inline const std::string_view C_COMPILER_NAME =
 			return {ret};
 		}
 	};
+
+	// TODO: Think about storing std::shared_ptr instead of objects
+	// TODO: Implement Dictionary struct (combination of std::map/std::unordered_map and std::vector/std::list)
 
 	struct Bro{
 		Log log;
