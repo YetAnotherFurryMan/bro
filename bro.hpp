@@ -724,14 +724,58 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	// TODO: Think about storing std::shared_ptr instead of objects
-	// TODO: Implement Dictionary struct (combination of std::map/std::unordered_map and std::vector/std::list)
+	
+	template <typename T1, typename T2>
+	struct Dictionary: public std::vector<T2>{
+		std::unordered_map<T1, std::size_t> dict;
+
+		inline T2& operator[](const T1& ix){
+			if(dict.find(ix) == dict.end()){
+				std::size_t i = std::vector<T2>::size();
+				std::vector<T2>::emplace_back();
+				dict[ix] = i;
+				return std::vector<T2>::operator[](i);
+			}
+
+			return std::vector<T2>::operator[](dict[ix]);
+		}
+
+		inline T2& operator[](const std::size_t ix){
+			return std::vector<T2>::operator[](ix);
+		}
+
+		inline bool alias(const T1& ix1, std::size_t ix2){
+			if(ix2 >= std::vector<T2>::size())
+				return true;
+
+			dict[ix1] = ix2;
+
+			return false;
+		}
+
+		inline bool alias(const T1& ix1, const T1& ix2){
+			if(dict.find(ix2) == dict.end())
+				return true;
+
+			return alias(ix1, dict[ix2]);
+		}
+
+		inline typename std::vector<T2>::iterator find(const T1& ix){
+			if(dict.find(ix) == dict.end())
+				return std::vector<T2>::end();
+
+			return std::vector<T2>::begin() + dict[ix];
+		}
+	};
 
 	struct Bro{
 		Log log;
 		File header;
 		File src;
 		File exe;
-		std::unordered_map<std::string, CmdTmpl> cmds;
+		Dictionary<std::string, CmdTmpl> cmds;
+		// Dictionary<std::string, Module> mods;
+		Dictionary<std::string, Stage> stages;
 		std::unordered_map<std::string, Mod> mods;
 		std::unordered_map<std::string_view, std::string_view> flags;
 		bool hasExe = false;
@@ -859,6 +903,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags[name] != "no" && flags[name] != "0";
 		}
 
+		// TODO: registerCmd returns index
+		// TODO: refCmd returns CmdTmpl&
 		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
 			std::string n(name);
 
@@ -882,6 +928,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return registerCmd(name, CmdTmpl{ext, cmd});
 		}
 
+		// TODO: registerModule returns index
+		// TODO: refModule returns Module&
 		inline bool registerModule(ModType type, std::string_view name, bool src = true){
 			std::string n(name);
 
@@ -1140,7 +1188,8 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline int ninja(std::ostream& out){
-			for(const auto& [name, tmpl]: cmds){
+			for(const auto& [name, tmpl_ix]: cmds.dict){
+				const CmdTmpl& tmpl = cmds[tmpl_ix];
 				out << "rule " << name << std::endl;
 				out << "  command = " << tmpl.compile().str() << std::endl;
 				out << std::endl;

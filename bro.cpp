@@ -155,8 +155,8 @@ int main(int argc, const char** argv){
 	}
 
 	bro.log.info("Cmds: {}", bro.cmds.size());
-	for(const auto& [key, val]: bro.cmds){
-		auto cmd = val.compile();
+	for(const auto& [key, val_ix]: bro.cmds.dict){
+		auto cmd = bro.cmds[val_ix].compile();
 		bro.log.info("Cmd {}: {}", key, cmd.str());
 	}
 
