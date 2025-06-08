@@ -63,6 +63,18 @@ inline const std::string_view C_COMPILER_NAME =
 #endif
 ;
 
+	// TODO: Check C++ wersion, if 20 replace with official implementation
+	inline bool starts_with(const std::string& a, std::string_view b){
+		if(a.length() < b.length())
+			return false;
+	
+		for(std::size_t i = 0; i < b.length(); i++)
+			if(a[i] != b[i])
+				return false;
+	
+		return true;
+	}
+
 	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
 			out << fmt;
@@ -460,6 +472,85 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	struct CmdEntry: public Runnable{
+		Cmd cmd;
+		std::string output;
+		std::vector<std::string> inputs;
+		std::vector<std::string> dependences;
+		bool smart;
+		
+		CmdEntry() = default;
+
+		CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const std::vector<std::string>& cmd, bool smart = false):
+			cmd{cmd},
+			output{output},
+			inputs{inputs},
+			smart{smart}
+		{}
+
+		template<std::size_t N, std::size_t M>
+		CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const std::array<std::string, M>& cmd, bool smart = false):
+			cmd{cmd},
+			output{output},
+			inputs{inputs.begin(), inputs.end()},
+			smart{smart}
+		{}
+
+		inline Directory directory() const {
+			return Directory{output.substr(0, output.rfind('/'))};
+		}
+
+		inline bool smartRun(){
+			if(smart){
+				File o(output);
+				if(!o.exists)
+					return true;
+				
+				bool run = false;
+				for(const auto& i: inputs){
+					File f(i);
+					if(f > o){
+						run = true;
+						break;
+					}
+				}
+
+				if(!run) for(const auto& d: dependences){
+					File f(d);
+					if(f > o){
+						run = true;
+						break;
+					}
+				}
+
+				return run;
+			}
+
+			return true;
+		}
+
+		inline int sync(Log& log) override {
+			directory().make(log);
+			
+			if(!smartRun())
+				return 0;
+
+			return cmd.sync(log);
+		}
+
+		inline std::future<int> async(Log& log) override {
+			directory().make(log);
+
+			if(!smartRun())
+				return std::async(std::launch::async, []{ return 0; });
+			
+			return cmd.async(log);
+		}
+
+		// TODO: inline std::string ninja()
+		// TODO: inline std::string make()
+	};
+
 	enum class ModType{
 		EXE,
 		LIB,
@@ -483,6 +574,152 @@ inline const std::string_view C_COMPILER_NAME =
 		Mod(ModType type):
 			type{type}
 		{}
+	};
+
+	struct Module{
+		std::string name;
+		std::vector<File> files;
+		bool disabled = false;
+	
+		Module() = default;
+		Module(std::string_view name):
+			name{name}
+		{}
+	
+		inline bool addFile(const File& file){
+			if(!file.exists)
+				return true;
+	
+			files.emplace_back(file);
+			
+			return false;
+		}
+	
+		inline bool addFile(std::string_view file){
+			return addFile(File{file});
+		}
+	
+		inline bool addDirectory(const Directory& dir){
+			if(!dir.exists)
+				return true;
+	
+			for(const auto& file: dir.files())
+				files.emplace_back(file);
+	
+			return false;
+		}
+	
+		inline bool addDirectory(std::string_view dir){
+			return addDirectory(Directory{dir});
+		}
+	};
+
+	struct Stage{
+		std::string name;
+		std::unordered_map<std::string, CmdTmpl> cmds;
+	
+		Stage() = default;
+		Stage(std::string_view name):
+			name{name}
+		{}
+	
+		virtual ~Stage() = default;
+	
+		virtual std::vector<CmdEntry> apply(Module& mod){
+			return {};
+		};
+	
+		// TODO: Standard CmdTmpl variants
+		inline bool add(std::string_view ext, const CmdTmpl& cmd){
+			std::string e{ext};
+	
+			if(cmds.find(e) != cmds.end())
+				return true;
+	
+			cmds[e] = cmd;
+	
+			return false;
+		}
+	};
+	
+	struct Transform: public Stage{
+		std::string outext;
+	
+		Transform() = default;
+		Transform(std::string_view name, std::string_view outext):
+			Stage{name},
+			outext{outext}
+		{}
+	
+		virtual std::vector<CmdEntry> apply(Module& mod) override {
+			if(mod.disabled)
+				return {};
+	
+			std::vector<CmdEntry> ret;
+			for(const auto& file: mod.files){
+				std::string ext = file.path.extension();
+				if(cmds.find(ext) == cmds.end())
+					continue;
+	
+				std::string out = file.path.string();
+				if(bro::starts_with(out, "build/")){
+					out = out.substr(out.find('/', 6)); // Cut build/$stage_name/
+					out = out.substr(out.find('/')); // Cut $mod_name/
+				}
+				out = "build/" + name + "/" + mod.name + "/" + out + outext;
+	
+				ret.emplace_back(out, std::vector<std::string>{file.path.string()}, cmds[ext].compile({
+							{"in", {file.path.string()}},
+							{"out", {out}},
+							{"mod", {mod.name}}
+						}).cmd);
+			}
+	
+			for(const auto& entry: ret){
+				mod.files.emplace_back(entry.output);
+			}
+	
+			return ret;
+		}
+	};
+	
+	struct Link: public Stage{
+		std::string outtmpl;
+		
+		Link() = default;
+		Link(std::string_view name, std::string_view outtmpl):
+			Stage{name},
+			outtmpl{outtmpl}
+		{}
+	
+		virtual std::vector<CmdEntry> apply(Module& mod) override {
+			if(mod.disabled)
+				return {};
+			
+			CmdEntry ret;
+			ret.output = "build/" + name + "/" + outtmpl;
+			
+			std::string::size_type pos = 0;
+			while((pos = ret.output.find("$mod", pos)) != std::string::npos){
+				ret.output.replace(pos, 4, mod.name);
+				pos += mod.name.length();
+			}
+	
+			for(const auto& file: mod.files){
+				std::string ext = file.path.extension();
+				if(cmds.find(ext) == cmds.end())
+					continue;
+				ret.inputs.emplace_back(file.path);
+			}
+	
+			ret.cmd = (*cmds.begin()).second.compile({
+					{"out", {ret.output}},
+					{"in", ret.inputs},
+					{"mod", {mod.name}}
+				});
+	
+			return {ret};
+		}
 	};
 
 	struct Bro{
