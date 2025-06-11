@@ -10,8 +10,9 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Header: {}", bro.header);
 
-	bro.registerCmd("cxx", ".cpp", ".cpp.o", {"g++", "-c", "$in", "-o", "$out"});
-	bro.registerCmd("cc", ".c", ".c.o", {"gcc", "-c", "$in", "-o", "$out"});
+	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "$in", "-o", "$out"});
+	std::size_t c_ix = bro.cmd("cc", {"gcc", "-c", "$in", "-o", "$out"});
+	std::size_t exe_ix = bro.cmd("exe", {"gcc", "$in", "-o", "$out", "$flags"});
 
 	bro::CmdTmpl run({"./$in"});
 
@@ -20,9 +21,12 @@ int main(int argc, const char** argv){
 	std::filesystem::create_directories("common");
 	bro::Directory mod("src/mod");
 
-	bro.registerModule(bro::ModType::EXE, "mod");
-	bro.use("mod", "cxx");
-	bro.link("mod", "-lstdc++");
+	std::size_t mod_ix = bro.mod("mod");
+	// bro.link("mod", "-lstdc++");
+
+	std::size_t obj_ix = bro.transform("obj", ".o");
+	bro.useCmd(obj_ix, cxx_ix, ".cpp");
+	bro.useCmd(obj_ix, c_ix, ".c");
 
 	{
 		std::ofstream mod_main("src/mod/main.cpp");
@@ -33,10 +37,11 @@ int main(int argc, const char** argv){
 		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
 		mod_hello.close();
 
-		bro::Module mod("mod");
+		bro::Module& mod = bro.mods[mod_ix];
 		mod.addDirectory("src/mod");
 
-		bro::Transform out("out", ".o");
+		bro::Transform out_trans("out", ".o");
+		bro::Stage& out = out_trans;
 		out.add(".cpp", bro.cmds["cxx"]);
 
 		bro::CmdPool pool;
@@ -48,7 +53,7 @@ int main(int argc, const char** argv){
 		pool.sync(bro.log);
 
 		bro::Link bin("bin", "$mod");
-		bin.add(".o", bro.cmds["exe"].resolve("flags", "-lstdc++"));
+		bin.add(".o", bro.cmds[exe_ix].resolve("flags", "-lstdc++"));
 
 		pool.clear();
 

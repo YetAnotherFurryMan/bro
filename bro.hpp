@@ -29,6 +29,7 @@
 #include <array>
 #include <vector>
 #include <future>
+#include <limits>
 #include <sstream>
 #include <fstream>
 #include <iomanip>
@@ -37,7 +38,6 @@
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace bro{
 
@@ -259,10 +259,6 @@ inline const std::string_view C_COMPILER_NAME =
 		
 		Cmd() = default;
 
-		Cmd(const std::string* cmd, std::size_t cmd_size):
-			cmd{cmd, cmd + cmd_size}
-		{}
-
 		Cmd(const std::vector<std::string>& cmd):
 			cmd{cmd}
 		{}
@@ -286,12 +282,22 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline int sync(Log& log) override {
+			if(cmd.size() == 0){
+				log.error("Cannot run empty CMD...");
+				return -1;
+			}
+
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
 		inline std::future<int> async(Log& log) override {
+			if(cmd.size() == 0){
+				log.error("Cannot run empty CMD...");
+				return std::async([](){ return -1; });
+			}
+			
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
@@ -301,41 +307,16 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
-		std::string inext;
-		std::string outext;
 		std::vector<std::string> cmd;
 
 		CmdTmpl() = default;
 		
-		CmdTmpl(const std::string* cmd, std::size_t cmd_size):
-			cmd{cmd, cmd + cmd_size}
-		{}
-
 		CmdTmpl(const std::vector<std::string>& cmd):
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
 		CmdTmpl(const std::array<std::string, N>& cmd):
-			cmd{cmd.begin(), cmd.end()}
-		{}
-
-		CmdTmpl(std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size):
-			inext{inext},
-			outext{outext},
-			cmd{cmd, cmd + cmd_size}
-		{}
-
-		CmdTmpl(std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd):
-			inext{inext},
-			outext{outext},
-			cmd{cmd}
-		{}
-
-		template<std::size_t N>
-		CmdTmpl(std::string_view inext, std::string_view outext, std::array<std::string, N> cmd):
-			inext{inext},
-			outext{outext},
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
@@ -358,8 +339,6 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
 			CmdTmpl ret;
-			ret.inext = this->inext;
-			ret.outext = this->outext;
 
 			std::string v_name = "$";
 			v_name += name;
@@ -555,34 +534,11 @@ inline const std::string_view C_COMPILER_NAME =
 		// TODO: inline std::string make()
 	};
 
-	enum class ModType{
-		EXE,
-		LIB,
-		STATIC,
-		APP
-	};
-
-	struct Mod{
-		ModType type;
-		std::unordered_set<std::string> cmds;
-		std::unordered_set<std::string> deps;
-		std::unordered_set<std::string> flags;
-		std::vector<Directory> dirs;
-		std::vector<File> files;
-
-		bool needsLinkage = false;
-		bool disabled = false;
-		std::vector<std::string> objs;
-
-		Mod() = default;
-		Mod(ModType type):
-			type{type}
-		{}
-	};
-
 	struct Module{
 		std::string name;
 		std::vector<File> files;
+		// TODO: add deps
+		// TODO: add flags
 		bool disabled = false;
 	
 		Module() = default;
@@ -655,7 +611,7 @@ inline const std::string_view C_COMPILER_NAME =
 			outext{outext}
 		{}
 	
-		virtual std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod) override {
 			if(mod.disabled)
 				return {};
 	
@@ -696,7 +652,7 @@ inline const std::string_view C_COMPILER_NAME =
 			outtmpl{outtmpl}
 		{}
 	
-		virtual std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod) override {
 			if(mod.disabled)
 				return {};
 			
@@ -769,6 +725,20 @@ inline const std::string_view C_COMPILER_NAME =
 
 			return std::vector<T2>::begin() + dict[ix];
 		}
+
+		template<typename... Args>
+		inline std::pair<std::size_t, T2&> emplace(const T1& ix, Args&&... args){
+			if(dict.find(ix) != dict.end()){
+				std::size_t i = dict[ix];
+				T2& ref = (std::vector<T2>::operator[](i) = T2(args...));
+				return std::pair<std::size_t, T2&>(i, ref);
+			}
+
+			std::size_t i = std::vector<T2>::size();
+			T2& ref = std::vector<T2>::emplace_back(args...);
+			dict[ix] = i;
+			return std::pair<std::size_t, T2&>(i, ref);
+		}
 	};
 
 	struct Bro{
@@ -777,23 +747,9 @@ inline const std::string_view C_COMPILER_NAME =
 		File src;
 		File exe;
 		Dictionary<std::string, CmdTmpl> cmds;
-		// Dictionary<std::string, Module> mods;
-		Dictionary<std::string, Stage> stages;
-		std::unordered_map<std::string, Mod> mods;
+		Dictionary<std::string, Module> mods;
+		Dictionary<std::string, Stage> stages; // Must be std::shared_ptr
 		std::unordered_map<std::string_view, std::string_view> flags;
-		bool hasExe = false;
-		bool hasLib = false;
-		bool hasApp = false;
-
-		inline void _setup_cmds(){
-			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
-			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
-
-			registerCmd("lib", lib, true);
-			registerCmd("dll", dll, true);
-			registerCmd("exe", exe, true);
-		}
 
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
@@ -803,11 +759,7 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar";
 			flags["build"] = "build";
-			flags[".o"] = ".o";
-			flags[".a"] = ".a";
-			flags[".so"] = ".so";
-
-			_setup_cmds();
+			flags["src"] = "src";
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -843,8 +795,6 @@ inline const std::string_view C_COMPILER_NAME =
 					flags[arg] = "yes";
 				}
 			}
-
-			_setup_cmds();
 		}
 
 		inline bool isFresh(){
@@ -906,146 +856,79 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags[name] != "no" && flags[name] != "0";
 		}
 
-		// TODO: registerCmd returns index
-		// TODO: refCmd returns CmdTmpl&
-		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
+		inline std::size_t cmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
 			std::string n(name);
 
 			if(!force && cmds.find(n) != cmds.end())
-				return true;
+				return std::numeric_limits<std::size_t>::max();
 
-			cmds[n] = cmd;
-			return false;
+			auto [ix, _] = cmds.emplace(n, cmd);
+			return ix;
 		}
 
-		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size){
-			return registerCmd(name, CmdTmpl{inext, outext, cmd, cmd_size});
-		}
-
-		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd){
-			return registerCmd(name, CmdTmpl{inext, outext, cmd});
+		inline std::size_t cmd(std::string_view name, const std::vector<std::string>& cmd){
+			return this->cmd(name, CmdTmpl{cmd});
 		}
 
 		template<std::size_t N>
-		inline bool registerCmd(std::string_view name, std::string_view ext, const std::array<std::string, N>& cmd){
-			return registerCmd(name, CmdTmpl{ext, cmd});
+		inline std::size_t cmd(std::string_view name, const std::array<std::string, N>& cmd){
+			return this->cmd(name, CmdTmpl{cmd});
 		}
 
-		// TODO: registerModule returns index
-		// TODO: refModule returns Module&
-		inline bool registerModule(ModType type, std::string_view name, bool src = true){
-			std::string n(name);
+		inline std::size_t mod(std::string_view name, bool src = true){
+			std::string n{name};
 
 			if(mods.find(n) != mods.end())
-				return true;
+				return std::numeric_limits<std::size_t>::max();
 
-			switch(type){
-				case ModType::EXE: hasExe = true; break;
-				case ModType::STATIC:
-				case ModType::LIB: hasLib = true; break;
-				case ModType::APP: hasApp = true; break;
-			}
-
-			auto [it, ins] = mods.emplace(n, Mod{type});
+			auto [ix, ref] = mods.emplace(n, name);
 
 			if(src){
 				Directory d("src/" + std::string{name});
 				if(d.exists){
-					(*it).second.dirs.push_back(d);
+					ref.addDirectory(d);
 				}
 			}
 
-			return ins;
+			return ix;
 		}
 
-		inline bool use(std::string_view mod, std::string_view cmd){
-			std::string m(mod);
-			std::string c(cmd);
+		inline std::size_t stage(std::string_view name, const Stage& stage){
+			std::string n{name};
 
-			if(mods.find(m) == mods.end() || cmds.find(c) == cmds.end())
-				return true;
+			if(stages.find(n) != stages.end())
+				return std::numeric_limits<std::size_t>::max();
 
-			mods[m].cmds.insert(c);
-			return false;
+			auto [ix, ref] = stages.emplace(n, stage);
+
+			return ix;
 		}
 
-		inline bool dep(std::string_view mod, std::string_view lib){
-			std::string m(mod);
-			std::string l(lib);
-
-			if(mods.find(m) == mods.end() || mods.find(l) == mods.end() || (mods[l].type != ModType::LIB && mods[l].type != ModType::STATIC))
-				return true;
-
-			mods[m].deps.insert(l);
-			return false;
+		inline std::size_t transform(std::string_view name, std::string_view outext){
+			return stage(name, Transform{name, outext});
 		}
 
-		inline bool link(std::string_view mod, std::string_view flag){
-			std::string m(mod);
-			std::string f(flag);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			mods[m].flags.insert(f);
-
-			return false;
+		inline std::size_t link(std::string_view name, std::string_view outtmpl){
+			return stage(name, Link{name, outtmpl});
 		}
 
-		inline bool addDirectory(std::string_view mod, Directory dir){
-			std::string m(mod);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			if(!dir.exists)
-				return true;
-
-			mods[m].dirs.push_back(dir);
-
-			return false;
-		}
-
-		inline bool addDirectory(std::string_view mod, std::string_view dir){
-			return addDirectory(mod, Directory(dir));
-		}
-
-		inline bool addFile(std::string_view mod, File file){
-			std::string m(mod);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			if(!file.exists)
-				return true;
-
-			mods[m].files.push_back(file);
-
-			return false;
-		}
-
-		inline bool addFile(std::string_view mod, std::string_view file){
-			return addFile(mod, File(file));
+		inline bool useCmd(std::size_t stage, std::size_t cmd, std::string_view ext){
+			return stages[stage].add(ext, cmds[cmd]);
 		}
 
 		inline int build(){
 			std::filesystem::create_directory(flags["build"]);
-			if(hasExe) std::filesystem::create_directory(std::string(flags["build"]) + "/bin");
-			if(hasLib) std::filesystem::create_directory(std::string(flags["build"]) + "/lib");
-			if(hasApp) std::filesystem::create_directory(std::string(flags["build"]) + "/app");
 
 			int ret = 0;
 
+#if 0
 			// TODO: Make CmdPool Runnable and q it with linkage
 			CmdPool pool;
-			for(auto& [name, mod]: mods){
+			for(Module& mod: mods){
 				if(mod.disabled)
 					break;
 
-				log.info("Module {}", name);
-
-				mod.needsLinkage = false;
-				mod.objs.clear();
+				log.info("Module {}", mod.name);
 
 				for(const auto& dir: mod.dirs){
 					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.filename().string())))
@@ -1169,27 +1052,29 @@ inline const std::string_view C_COMPILER_NAME =
 
 			if((ret = pool.async(log).wait()))
 				return ret;
+#endif
 
-			return 0;
+			return ret;
 		}
 
 		inline int run(){
 			bool dflt = false;
-			for(auto& [name, mod]: mods){
+			for(const auto& [name, mod]: mods.dict){
 				if(isFlagSet(name)){
 					dflt = true;
 					break;
 				}
 			}
 
-			for(auto& [name, mod]: mods){
+			for(Module& mod: mods){
 				// What about ~[name]
-				mod.disabled = !isFlagSet(name, !dflt);
+				mod.disabled = !isFlagSet(mod.name, !dflt);
 			}
 
 			return build();
 		}
 
+#if 0
 		inline int ninja(std::ostream& out){
 			for(const auto& [name, tmpl_ix]: cmds.dict){
 				const CmdTmpl& tmpl = cmds[tmpl_ix];
@@ -1447,6 +1332,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 			return ret;
 		}
+#endif
 	};
 
 	template<typename CharT, typename Traits>
