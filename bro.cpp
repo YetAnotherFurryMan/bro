@@ -45,11 +45,7 @@ int main(int argc, const char** argv){
 			pool.push(cmd);
 		}
 
-		pool.async(bro.log).wait();
-
-		system("touch src/mod/hello.cpp");
-
-		pool.async(bro.log).wait();
+		pool.sync(bro.log);
 
 		bro::Link bin("bin", "$mod");
 		bin.add(".o", bro.cmds["exe"].resolve("flags", "-lstdc++"));
@@ -67,8 +63,7 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-	return 0;
-
+#if 0
 	{
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();void bye();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); return 0;}";
@@ -146,6 +141,7 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
+#endif
 	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");
 		std::filesystem::remove_all("common");
@@ -159,6 +155,6 @@ int main(int argc, const char** argv){
 		auto cmd = bro.cmds[val_ix].compile();
 		bro.log.info("Cmd {}: {}", key, cmd.str());
 	}
-
+	
 	return 0;
 }

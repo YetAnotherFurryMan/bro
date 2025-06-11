@@ -122,21 +122,25 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
-	struct File{
+	struct File: public std::filesystem::path{
 		bool exists = false;
-		std::filesystem::path path;
 		std::filesystem::file_time_type time;
 
 		File() = default;
+		File(const File& other) = default;
 
 		File(std::filesystem::path p):
-			path{p}
+			std::filesystem::path{p}
 		{
 			exists = std::filesystem::exists(p);
 
 			if(exists){
 				time = std::filesystem::last_write_time(p);
 			}
+		}
+
+		constexpr const std::filesystem::path& path() const {
+			return *this;
 		}
 
 		inline bool operator>(const File& f) const {
@@ -149,15 +153,15 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int copy(Log& log, std::filesystem::path to) const {
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 
 			std::error_code ec;
-			std::filesystem::copy(path, to, std::filesystem::copy_options::overwrite_existing, ec);
+			std::filesystem::copy(*this, to, std::filesystem::copy_options::overwrite_existing, ec);
 			
 			if(ec){
-				log.error("Failed to copy from {} to {}: {}", path, to, ec);
+				log.error("Failed to copy from {} to {}: {}", path(), to, ec);
 				return ec.value();
 			}
 
@@ -166,19 +170,19 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int move(Log& log, std::filesystem::path to){
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 
 			std::error_code ec;
-			std::filesystem::rename(path, to, ec);
+			std::filesystem::rename(path(), to, ec);
 			
 			if(ec){
-				log.error("Failed to move from {} to {}: {}", path, to, ec);
+				log.error("Failed to move from {} to {}: {}", path(), to, ec);
 				return ec.value();
 			}
 
-			path = to;
+			*this = to;
 
 			return 0;
 		}
@@ -189,10 +193,10 @@ inline const std::string_view C_COMPILER_NAME =
 		Directory(std::filesystem::path p): File{p} {}
 
 		inline int copyTree(Log& log, std::filesystem::path p) const {
-			log.info("Copying tree {} => {}", path, p);
+			log.info("Copying tree {} => {}", path(), p);
 
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 			
@@ -205,9 +209,9 @@ inline const std::string_view C_COMPILER_NAME =
 				return ec.value();
 			}
 
-			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path())){
 				if(std::filesystem::is_directory(e.status())){
-					std::filesystem::path p2 = p / std::filesystem::relative(e.path(), path);
+					std::filesystem::path p2 = p / std::filesystem::relative(e.path(), path());
 					std::filesystem::create_directory(p2, ec);
 
 					if(ec){
@@ -225,7 +229,7 @@ inline const std::string_view C_COMPILER_NAME =
 			if(!exists)
 				return files;
 
-			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path())){
 				if(std::filesystem::is_regular_file(e.status())){
 					files.emplace_back(e.path());
 				}
@@ -238,8 +242,8 @@ inline const std::string_view C_COMPILER_NAME =
 			if(exists)
 				return false;
 
-			log.info("Making directory: {}", path);
-			std::filesystem::create_directories(path);
+			log.info("Making directory: {}", path());
+			std::filesystem::create_directories(path());
 			return true;
 		}
 	};
@@ -578,7 +582,6 @@ inline const std::string_view C_COMPILER_NAME =
 
 	struct Module{
 		std::string name;
-		// TODO: Make File inherit from std::fs::path and change std::vector to std::unordered_set
 		std::vector<File> files;
 		bool disabled = false;
 	
@@ -658,19 +661,19 @@ inline const std::string_view C_COMPILER_NAME =
 	
 			std::vector<CmdEntry> ret;
 			for(const auto& file: mod.files){
-				std::string ext = file.path.extension();
+				std::string ext = file.extension();
 				if(cmds.find(ext) == cmds.end())
 					continue;
 	
-				std::string out = file.path.string();
+				std::string out = file.string();
 				if(bro::starts_with(out, "build/")){
 					out = out.substr(out.find('/', 6)); // Cut build/$stage_name/
 					out = out.substr(out.find('/')); // Cut $mod_name/
 				}
 				out = "build/" + name + "/" + mod.name + "/" + out + outext;
 	
-				ret.emplace_back(out, std::vector<std::string>{file.path.string()}, cmds[ext].compile({
-							{"in", {file.path.string()}},
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext].compile({
+							{"in", {file.string()}},
 							{"out", {out}},
 							{"mod", {mod.name}}
 						}).cmd);
@@ -707,10 +710,10 @@ inline const std::string_view C_COMPILER_NAME =
 			}
 	
 			for(const auto& file: mod.files){
-				std::string ext = file.path.extension();
+				std::string ext = file.extension();
 				if(cmds.find(ext) == cmds.end())
 					continue;
-				ret.inputs.emplace_back(file.path);
+				ret.inputs.emplace_back(file.path());
 			}
 	
 			ret.cmd = (*cmds.begin()).second.compile({
@@ -855,11 +858,11 @@ inline const std::string_view C_COMPILER_NAME =
 				int ret = 0;
 
 				// Save exe to .old
-				ret = exe.copy(log, exe.path.string() + ".old");
+				ret = exe.copy(log, exe.string() + ".old");
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				Cmd cmd({std::string(flags["cxx"]), "-o", exe.path, src.path});
+				Cmd cmd({std::string(flags["cxx"]), "-o", exe.path(), src.path()});
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
@@ -867,7 +870,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 				// Run
 				cmd.cmd.clear();
-				cmd.cmd.push_back(exe.path);
+				cmd.cmd.push_back(exe.path());
 				for(const auto& [name, value]: flags){
 					if(name[0] != '~')
 						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
@@ -1045,20 +1048,20 @@ inline const std::string_view C_COMPILER_NAME =
 				mod.objs.clear();
 
 				for(const auto& dir: mod.dirs){
-					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.path.filename().string())))
+					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.filename().string())))
 						return ret;
 			
 					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
-								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + getFlag(".o");
+								std::string out = std::string(flags["build"]) + "/obj" + file.string().substr(3) + getFlag(".o");
 								mod.objs.push_back(out);
 								if(!(File(out) > file)){
 									mod.needsLinkage = true;
 									pool.push(cmds[cmd].compile({
 												{"out", {out}}, 
-												{"in", {file.path.string()}}
+												{"in", {file.string()}}
 											}));
 								}
 
@@ -1072,7 +1075,7 @@ inline const std::string_view C_COMPILER_NAME =
 					std::filesystem::create_directory(std::string(flags["build"]) + "/obj/" + name + " files");
 					std::size_t index = 0;
 					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
 								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + getFlag(".o");
@@ -1081,7 +1084,7 @@ inline const std::string_view C_COMPILER_NAME =
 									mod.needsLinkage = true;
 									pool.push(cmds[cmd].compile({
 												{"out", {out}}, 
-												{"in", {file.path.string()}}
+												{"in", {file.string()}}
 											}));
 								}
 
@@ -1200,12 +1203,12 @@ inline const std::string_view C_COMPILER_NAME =
 
 				for(const auto& dir: mod.dirs){
 					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.string() + getFlag(".o");
 								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
+								out << "build " << obj << ": " << cmd << " " << file.string() << std::endl;
 								out << std::endl;
 								break;
 							}
@@ -1216,12 +1219,12 @@ inline const std::string_view C_COMPILER_NAME =
 				if(!mod.files.empty()){
 					std::size_t index = 0;
 					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
 								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + getFlag(".o");
 								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
+								out << "build " << obj << ": " << cmd << " " << file.string() << std::endl;
 								out << std::endl;
 								break;
 							}
@@ -1311,13 +1314,13 @@ inline const std::string_view C_COMPILER_NAME =
 				mod.objs.clear();
 				for(const auto& dir: mod.dirs){
 					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
-								out << obj << ": " << file.path.string() << std::endl;
+								out << obj << ": " << file.string() << std::endl;
 								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
 								out << std::endl;
 								break;
@@ -1328,13 +1331,13 @@ inline const std::string_view C_COMPILER_NAME =
 
 				if(!mod.files.empty()){
 					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
+						std::string ext = file.extension();
 						if(!ext.empty()) for(const auto& cmd: mod.cmds){
 							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + getFlag(".o");
+								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.string() + getFlag(".o");
 								mod.objs.push_back(obj);
 								dirs.insert(obj.substr(0, obj.find_last_of('/')));
-								out << obj << ": " << file.path.string() << std::endl;
+								out << obj << ": " << file.string() << std::endl;
 								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
 								out << std::endl;
 								break;
@@ -1451,6 +1454,6 @@ inline const std::string_view C_COMPILER_NAME =
 		auto time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(file.time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
 		std::time_t tt = std::chrono::system_clock::to_time_t(time);
 		std::tm* tm = std::localtime(&tt);
-		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path() << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
 	}
 }
