@@ -574,9 +574,10 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	// TODO: Introduce * extension (for all) and maybe some pattern matching (.c*, etc.)
 	struct Stage{
 		std::string name;
-		std::unordered_map<std::string, CmdTmpl> cmds;
+		std::unordered_map<std::string, CmdTmpl> cmds; // TODO: Make it Dictionary, so cmds may run on many extensions
 	
 		Stage() = default;
 		Stage(std::string_view name):
@@ -684,27 +685,27 @@ inline const std::string_view C_COMPILER_NAME =
 
 	// TODO: Think about storing std::shared_ptr instead of objects
 	
-	template <typename T1, typename T2>
-	struct Dictionary: public std::vector<T2>{
-		std::unordered_map<T1, std::size_t> dict;
+	template <typename K, typename V>
+	struct Dictionary: public std::vector<V>{
+		std::unordered_map<K, std::size_t> dict;
 
-		inline T2& operator[](const T1& ix){
+		inline V& operator[](const K& ix){
 			if(dict.find(ix) == dict.end()){
-				std::size_t i = std::vector<T2>::size();
-				std::vector<T2>::emplace_back();
+				std::size_t i = std::vector<V>::size();
+				std::vector<V>::emplace_back();
 				dict[ix] = i;
-				return std::vector<T2>::operator[](i);
+				return std::vector<V>::operator[](i);
 			}
 
-			return std::vector<T2>::operator[](dict[ix]);
+			return std::vector<V>::operator[](dict[ix]);
 		}
 
-		inline T2& operator[](const std::size_t ix){
-			return std::vector<T2>::operator[](ix);
+		inline V& operator[](const std::size_t ix){
+			return std::vector<V>::operator[](ix);
 		}
 
-		inline bool alias(const T1& ix1, std::size_t ix2){
-			if(ix2 >= std::vector<T2>::size())
+		inline bool alias(const K& ix1, std::size_t ix2){
+			if(ix2 >= std::vector<V>::size())
 				return true;
 
 			dict[ix1] = ix2;
@@ -712,32 +713,32 @@ inline const std::string_view C_COMPILER_NAME =
 			return false;
 		}
 
-		inline bool alias(const T1& ix1, const T1& ix2){
+		inline bool alias(const K& ix1, const K& ix2){
 			if(dict.find(ix2) == dict.end())
 				return true;
 
 			return alias(ix1, dict[ix2]);
 		}
 
-		inline typename std::vector<T2>::iterator find(const T1& ix){
+		inline typename std::vector<V>::iterator find(const K& ix){
 			if(dict.find(ix) == dict.end())
-				return std::vector<T2>::end();
+				return std::vector<V>::end();
 
-			return std::vector<T2>::begin() + dict[ix];
+			return std::vector<V>::begin() + dict[ix];
 		}
 
 		template<typename... Args>
-		inline std::pair<std::size_t, T2&> emplace(const T1& ix, Args&&... args){
+		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
 			if(dict.find(ix) != dict.end()){
 				std::size_t i = dict[ix];
-				T2& ref = (std::vector<T2>::operator[](i) = T2(args...));
-				return std::pair<std::size_t, T2&>(i, ref);
+				V& ref = (std::vector<V>::operator[](i) = V(args...));
+				return std::pair<std::size_t, V&>(i, ref);
 			}
 
-			std::size_t i = std::vector<T2>::size();
-			T2& ref = std::vector<T2>::emplace_back(args...);
+			std::size_t i = std::vector<V>::size();
+			V& ref = std::vector<V>::emplace_back(args...);
 			dict[ix] = i;
-			return std::pair<std::size_t, T2&>(i, ref);
+			return std::pair<std::size_t, V&>(i, ref);
 		}
 	};
 
@@ -748,7 +749,7 @@ inline const std::string_view C_COMPILER_NAME =
 		File exe;
 		Dictionary<std::string, CmdTmpl> cmds;
 		Dictionary<std::string, Module> mods;
-		Dictionary<std::string, Stage> stages; // Must be std::shared_ptr
+		Dictionary<std::string, Stage> stages;
 		std::unordered_map<std::string_view, std::string_view> flags;
 
 		inline void _setup_default(){
