@@ -39,6 +39,8 @@
 #include <string_view>
 #include <unordered_map>
 
+// #include <type_traits>
+
 namespace bro{
 
 // Detect C++ compiler name
@@ -894,13 +896,28 @@ inline const std::string_view C_COMPILER_NAME =
 			return ix;
 		}
 
-		inline std::size_t stage(std::string_view name, const Stage& stage){
+		template<typename T>
+		inline typename std::enable_if<std::is_base_of<Stage, T>::value, std::size_t>::type
+		stage(std::string_view name, std::unique_ptr<T> stage){
 			std::string n{name};
 
 			if(stages.find(n) != stages.end())
 				return std::numeric_limits<std::size_t>::max();
 
-			auto [ix, ref] = stages.emplace(n, std::make_unique<Stage>(stage));
+			auto [ix, ref] = stages.emplace(n, std::move(stage));
+
+			return ix;
+		}
+
+		template<typename T>
+		inline typename std::enable_if<std::is_base_of<Stage, T>::value, std::size_t>::type
+		stage(std::string_view name, const T& stage){
+			std::string n{name};
+
+			if(stages.find(n) != stages.end())
+				return std::numeric_limits<std::size_t>::max();
+
+			auto [ix, ref] = stages.emplace(n, std::make_unique<T>(stage));
 
 			return ix;
 		}

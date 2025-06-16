@@ -37,15 +37,10 @@ int main(int argc, const char** argv){
 		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
 		mod_hello.close();
 
-		bro::Module& mod = bro.mods[mod_ix];
-		mod.addDirectory("src/mod");
-
-		bro::Transform out_trans("out", ".o");
-		bro::Stage& out = out_trans;
-		out.add(".cpp", bro.cmds["cxx"]);
+		bro.mods[mod_ix].addDirectory("src/mod");
 
 		bro::CmdPool pool;
-		for(auto& cmd: out.apply(mod)){
+		for(auto& cmd: bro.stages[obj_ix]->apply(bro.mods[mod_ix])){
 			cmd.smart = true;
 			pool.push(cmd);
 		}
@@ -57,7 +52,7 @@ int main(int argc, const char** argv){
 
 		pool.clear();
 
-		for(const auto& cmd: bin.apply(mod)){
+		for(const auto& cmd: bin.apply(bro.mods[mod_ix])){
 			pool.push(cmd);
 		}
 
