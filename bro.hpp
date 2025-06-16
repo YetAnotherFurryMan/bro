@@ -731,12 +731,12 @@ inline const std::string_view C_COMPILER_NAME =
 		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
 			if(dict.find(ix) != dict.end()){
 				std::size_t i = dict[ix];
-				V& ref = (std::vector<V>::operator[](i) = V(args...));
+				V& ref = (std::vector<V>::operator[](i) = V(std::forward<Args>(args)...));
 				return std::pair<std::size_t, V&>(i, ref);
 			}
 
 			std::size_t i = std::vector<V>::size();
-			V& ref = std::vector<V>::emplace_back(args...);
+			V& ref = std::vector<V>::emplace_back(std::forward<Args>(args)...);
 			dict[ix] = i;
 			return std::pair<std::size_t, V&>(i, ref);
 		}
@@ -749,7 +749,7 @@ inline const std::string_view C_COMPILER_NAME =
 		File exe;
 		Dictionary<std::string, CmdTmpl> cmds;
 		Dictionary<std::string, Module> mods;
-		Dictionary<std::string, Stage> stages;
+		Dictionary<std::string, std::unique_ptr<Stage>> stages;
 		std::unordered_map<std::string_view, std::string_view> flags;
 
 		inline void _setup_default(){
@@ -900,7 +900,7 @@ inline const std::string_view C_COMPILER_NAME =
 			if(stages.find(n) != stages.end())
 				return std::numeric_limits<std::size_t>::max();
 
-			auto [ix, ref] = stages.emplace(n, stage);
+			auto [ix, ref] = stages.emplace(n, std::make_unique<Stage>(stage));
 
 			return ix;
 		}
@@ -914,7 +914,7 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline bool useCmd(std::size_t stage, std::size_t cmd, std::string_view ext){
-			return stages[stage].add(ext, cmds[cmd]);
+			return stages[stage]->add(ext, cmds[cmd]);
 		}
 
 		inline int build(){
