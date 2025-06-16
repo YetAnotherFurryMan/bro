@@ -23,6 +23,9 @@
  */
 
 // TODO: Write a function for space escaping
+// TODO: Write an insert function for Dictionary and for stage API
+// TODO: Batch size
+// TODO: Make Modules reusable (at least after build or run)
 
 #pragma once
 
@@ -37,9 +40,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <string_view>
+#include <unordered_set>
 #include <unordered_map>
-
-// #include <type_traits>
 
 namespace bro{
 
@@ -615,9 +617,6 @@ inline const std::string_view C_COMPILER_NAME =
 		{}
 	
 		std::vector<CmdEntry> apply(Module& mod) override {
-			if(mod.disabled)
-				return {};
-	
 			std::vector<CmdEntry> ret;
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
@@ -656,9 +655,6 @@ inline const std::string_view C_COMPILER_NAME =
 		{}
 	
 		std::vector<CmdEntry> apply(Module& mod) override {
-			if(mod.disabled)
-				return {};
-			
 			CmdEntry ret;
 			ret.output = "build/" + name + "/" + outtmpl;
 			
@@ -752,6 +748,7 @@ inline const std::string_view C_COMPILER_NAME =
 		Dictionary<std::string, CmdTmpl> cmds;
 		Dictionary<std::string, Module> mods;
 		Dictionary<std::string, std::unique_ptr<Stage>> stages;
+		std::unordered_map<std::size_t, std::unordered_set<std::size_t>> mods4stage;
 		std::unordered_map<std::string_view, std::string_view> flags;
 
 		inline void _setup_default(){
@@ -931,7 +928,18 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline bool useCmd(std::size_t stage, std::size_t cmd, std::string_view ext){
+			if(stage >= stages.size() || cmd >= cmds.size())
+				return true;
+
 			return stages[stage]->add(ext, cmds[cmd]);
+		}
+
+		inline bool applyMod(std::size_t stage, std::size_t mod){
+			if(stage >= stages.size() || mod >= mods.size())
+				return true;
+
+			mods4stage[stage].insert(mod);
+			return false;
 		}
 
 		inline int build(){
@@ -939,138 +947,21 @@ inline const std::string_view C_COMPILER_NAME =
 
 			int ret = 0;
 
-#if 0
-			// TODO: Make CmdPool Runnable and q it with linkage
 			CmdPool pool;
-			for(Module& mod: mods){
-				if(mod.disabled)
-					break;
-
-				log.info("Module {}", mod.name);
-
-				for(const auto& dir: mod.dirs){
-					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.filename().string())))
-						return ret;
-			
-					for(const auto& file: dir.files()){
-						std::string ext = file.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string out = std::string(flags["build"]) + "/obj" + file.string().substr(3) + getFlag(".o");
-								mod.objs.push_back(out);
-								if(!(File(out) > file)){
-									mod.needsLinkage = true;
-									pool.push(cmds[cmd].compile({
-												{"out", {out}}, 
-												{"in", {file.string()}}
-											}));
-								}
-
-								break;
-							}
-						}
+			for(const auto& stage: stages){
+				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
+					Module& mod = mods[mod_ix];
+					if(!mod.disabled) for(auto& cmd: stage->apply(mod)){
+						cmd.smart = true;
+						pool.push(cmd);
 					}
 				}
 
-				if(!mod.files.empty()){
-					std::filesystem::create_directory(std::string(flags["build"]) + "/obj/" + name + " files");
-					std::size_t index = 0;
-					for(const auto& file: mod.files){
-						std::string ext = file.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + getFlag(".o");
-								mod.objs.push_back(out);
-								if(!(File(out) > file)){
-									mod.needsLinkage = true;
-									pool.push(cmds[cmd].compile({
-												{"out", {out}}, 
-												{"in", {file.string()}}
-											}));
-								}
+				if((ret = pool.async(log).wait()))
+					return ret;
 
-								break;
-							}
-						}
-					}
-				}
+				pool.clear();
 			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link libs
-			for(const auto& [name, mod]: mods){
-				if(mod.type != ModType::LIB && mod.type != ModType::STATIC)
-					continue;
-
-				if(mod.needsLinkage){
-					std::string dot_a = std::string(flags["build"]) + "/lib/lib" + name + getFlag(".a");
-					std::filesystem::remove(dot_a);
-					pool.push(cmds["lib"].compile({
-								{"out", {dot_a}},
-								{"in", mod.objs}
-							}));
-					// TODO: What about .dll?
-					if(mod.type != ModType::STATIC) 
-						pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/lib/" + name + getFlag(".so")}},
-								{"in", mod.objs}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link exes
-			for(auto& [name, mod]: mods){
-				if(mod.type != ModType::EXE)
-					continue;
-
-				for(const auto& dep: mod.deps){
-					if(mods[dep].needsLinkage)
-						mod.needsLinkage = true;
-
-					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + getFlag(".a"));
-				}
-
-				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
-
-				if(mod.needsLinkage){
-					pool.push(cmds["exe"].compile({
-								{"out", {std::string(this->flags["build"]) + "/bin/" + name}},
-								{"in", mod.objs},
-								{"flags", flags}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link apps
-			for(const auto& [name, mod]: mods){
-				if(mod.type != ModType::APP)
-					continue;
-
-				if(mod.needsLinkage){
-					pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/app/" + name + getFlag(".so")}}, 
-								{"in", mod.objs}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-#endif
 
 			return ret;
 		}
