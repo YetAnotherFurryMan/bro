@@ -28,6 +28,9 @@ int main(int argc, const char** argv){
 	bro.useCmd(obj_ix, cxx_ix, ".cpp");
 	bro.useCmd(obj_ix, c_ix, ".c");
 
+	std::size_t bin_ix = bro.link("bin", "$mod");
+	bro.stages[bin_ix]->add(".o", bro.cmds[exe_ix].resolve("flags", "-lstdc++"));
+
 	{
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();int main(){std::cout << \"Hello World!\" << std::endl; hello(); return 0;}";
@@ -47,12 +50,9 @@ int main(int argc, const char** argv){
 
 		pool.sync(bro.log);
 
-		bro::Link bin("bin", "$mod");
-		bin.add(".o", bro.cmds[exe_ix].resolve("flags", "-lstdc++"));
-
 		pool.clear();
 
-		for(const auto& cmd: bin.apply(bro.mods[mod_ix])){
+		for(const auto& cmd: bro.stages[bin_ix]->apply(bro.mods[mod_ix])){
 			pool.push(cmd);
 		}
 
