@@ -79,6 +79,63 @@ inline const std::string_view C_COMPILER_NAME =
 		return true;
 	}
 
+	template <typename K, typename V>
+	struct Dictionary: public std::vector<V>{
+		std::unordered_map<K, std::size_t> dict;
+
+		inline V& operator[](const K& ix){
+			if(dict.find(ix) == dict.end()){
+				std::size_t i = std::vector<V>::size();
+				std::vector<V>::emplace_back();
+				dict[ix] = i;
+				return std::vector<V>::operator[](i);
+			}
+
+			return std::vector<V>::operator[](dict[ix]);
+		}
+
+		inline V& operator[](const std::size_t ix){
+			return std::vector<V>::operator[](ix);
+		}
+
+		inline bool alias(const K& ix1, std::size_t ix2){
+			if(ix2 >= std::vector<V>::size())
+				return true;
+
+			dict[ix1] = ix2;
+
+			return false;
+		}
+
+		inline bool alias(const K& ix1, const K& ix2){
+			if(dict.find(ix2) == dict.end())
+				return true;
+
+			return alias(ix1, dict[ix2]);
+		}
+
+		inline typename std::vector<V>::iterator find(const K& ix){
+			if(dict.find(ix) == dict.end())
+				return std::vector<V>::end();
+
+			return std::vector<V>::begin() + dict[ix];
+		}
+
+		template<typename... Args>
+		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
+			if(dict.find(ix) != dict.end()){
+				std::size_t i = dict[ix];
+				V& ref = (std::vector<V>::operator[](i) = V(std::forward<Args>(args)...));
+				return std::pair<std::size_t, V&>(i, ref);
+			}
+
+			std::size_t i = std::vector<V>::size();
+			V& ref = std::vector<V>::emplace_back(std::forward<Args>(args)...);
+			dict[ix] = i;
+			return std::pair<std::size_t, V&>(i, ref);
+		}
+	};
+
 	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
 			out << fmt;
@@ -581,7 +638,7 @@ inline const std::string_view C_COMPILER_NAME =
 	// TODO: Introduce * extension (for all) and maybe some pattern matching (.c*, etc.)
 	struct Stage{
 		std::string name;
-		std::unordered_map<std::string, CmdTmpl> cmds; // TODO: Make it Dictionary, so cmds may run on many extensions
+		Dictionary<std::string, CmdTmpl> cmds;
 	
 		Stage() = default;
 		Stage(std::string_view name):
@@ -595,15 +652,25 @@ inline const std::string_view C_COMPILER_NAME =
 		};
 	
 		// TODO: Standard CmdTmpl variants
-		inline bool add(std::string_view ext, const CmdTmpl& cmd){
-			std::string e{ext};
-	
-			if(cmds.find(e) != cmds.end())
+		template<std::size_t N>
+		inline bool add(const std::array<std::string, N>& exts, const CmdTmpl& cmd){
+			if(N <= 0)
 				return true;
-	
-			cmds[e] = cmd;
+
+			for(std::size_t i = 0; i < N; i++){
+				if(cmds.find(exts[i]) != cmds.end())
+					return true;
+			}
+
+			cmds[exts[0]] = cmd;
+			for(std::size_t i = 1; i < N; i++)
+				cmds.alias(exts[0], exts[i]);
 	
 			return false;
+		}
+
+		inline bool add(std::string_view ext, const CmdTmpl& cmd){
+			return add(std::array<std::string, 1>{std::string{ext}}, cmd);
 		}
 	};
 	
@@ -671,72 +738,13 @@ inline const std::string_view C_COMPILER_NAME =
 				ret.inputs.emplace_back(file.path());
 			}
 	
-			ret.cmd = (*cmds.begin()).second.compile({
+			ret.cmd = (*cmds.begin()).compile({
 					{"out", {ret.output}},
 					{"in", ret.inputs},
 					{"mod", {mod.name}}
 				});
 	
 			return {ret};
-		}
-	};
-
-	// TODO: Think about storing std::shared_ptr instead of objects
-	
-	template <typename K, typename V>
-	struct Dictionary: public std::vector<V>{
-		std::unordered_map<K, std::size_t> dict;
-
-		inline V& operator[](const K& ix){
-			if(dict.find(ix) == dict.end()){
-				std::size_t i = std::vector<V>::size();
-				std::vector<V>::emplace_back();
-				dict[ix] = i;
-				return std::vector<V>::operator[](i);
-			}
-
-			return std::vector<V>::operator[](dict[ix]);
-		}
-
-		inline V& operator[](const std::size_t ix){
-			return std::vector<V>::operator[](ix);
-		}
-
-		inline bool alias(const K& ix1, std::size_t ix2){
-			if(ix2 >= std::vector<V>::size())
-				return true;
-
-			dict[ix1] = ix2;
-
-			return false;
-		}
-
-		inline bool alias(const K& ix1, const K& ix2){
-			if(dict.find(ix2) == dict.end())
-				return true;
-
-			return alias(ix1, dict[ix2]);
-		}
-
-		inline typename std::vector<V>::iterator find(const K& ix){
-			if(dict.find(ix) == dict.end())
-				return std::vector<V>::end();
-
-			return std::vector<V>::begin() + dict[ix];
-		}
-
-		template<typename... Args>
-		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
-			if(dict.find(ix) != dict.end()){
-				std::size_t i = dict[ix];
-				V& ref = (std::vector<V>::operator[](i) = V(std::forward<Args>(args)...));
-				return std::pair<std::size_t, V&>(i, ref);
-			}
-
-			std::size_t i = std::vector<V>::size();
-			V& ref = std::vector<V>::emplace_back(std::forward<Args>(args)...);
-			dict[ix] = i;
-			return std::pair<std::size_t, V&>(i, ref);
 		}
 	};
 
