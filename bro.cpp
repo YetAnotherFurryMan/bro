@@ -141,18 +141,16 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-#if 0
 	{
 		std::filesystem::remove_all("build");
 		bro.makefile();
 
-		bro::CmdTmpl make({"make"});
+		bro::Cmd make({"make"});
 		make.sync(bro.log);
 		
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-#endif
 	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");
 		std::filesystem::remove_all("common");
