@@ -26,6 +26,7 @@
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
 // TODO: Make Modules reusable (at least after build or run)
+// TODO: Cmd and CmsTmpl need name field, so ninja could be generated.
 
 #pragma once
 
@@ -316,6 +317,7 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct Cmd: public Runnable{
+		std::string name;
 		std::vector<std::string> cmd;
 		
 		Cmd() = default;
@@ -326,6 +328,17 @@ inline const std::string_view C_COMPILER_NAME =
 
 		template<std::size_t N>
 		Cmd(const std::array<std::string, N>& cmd):
+			cmd{cmd.begin(), cmd.end()}
+		{}
+		
+		Cmd(std::string_view name, const std::vector<std::string>& cmd):
+			name{name},
+			cmd{cmd}
+		{}
+
+		template<std::size_t N>
+		Cmd(std::string_view name, const std::array<std::string, N>& cmd):
+			name{name},
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
@@ -368,16 +381,19 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
+		std::string name;
 		std::vector<std::string> cmd;
 
 		CmdTmpl() = default;
 		
-		CmdTmpl(const std::vector<std::string>& cmd):
+		CmdTmpl(std::string_view name, const std::vector<std::string>& cmd):
+			name{name},
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		CmdTmpl(const std::array<std::string, N>& cmd):
+		CmdTmpl(std::string_view name, const std::array<std::string, N>& cmd):
+			name{name},
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
@@ -400,6 +416,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
 			CmdTmpl ret;
+			ret.name = this->name;
 
 			std::string v_name = "$";
 			v_name += name;
@@ -425,7 +442,7 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 
 		inline Cmd compile() const {
-			return Cmd(resolve("$dollar", "$").cmd);
+			return Cmd(name, resolve("$dollar", "$").cmd);
 		}
 
 		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
@@ -517,26 +534,29 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdEntry: public Runnable{
-		Cmd cmd;
+		CmdTmpl cmd;
 		std::string output;
 		std::vector<std::string> inputs;
 		std::vector<std::string> dependences;
+		std::unordered_map<std::string, std::vector<std::string>> flags;
 		bool smart;
 		
 		CmdEntry() = default;
 
-		CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const std::vector<std::string>& cmd, bool smart = false):
+		CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const CmdTmpl& cmd, std::unordered_map<std::string, std::vector<std::string>> flags = {}, bool smart = false):
 			cmd{cmd},
 			output{output},
 			inputs{inputs},
+			flags{flags},
 			smart{smart}
 		{}
 
 		template<std::size_t N, std::size_t M>
-		CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const std::array<std::string, M>& cmd, bool smart = false):
+		CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const CmdTmpl& cmd, std::unordered_map<std::string, std::vector<std::string>> flags = {}, bool smart = false):
 			cmd{cmd},
 			output{output},
 			inputs{inputs.begin(), inputs.end()},
+			flags{flags},
 			smart{smart}
 		{}
 
@@ -579,7 +599,14 @@ inline const std::string_view C_COMPILER_NAME =
 			if(!smartRun())
 				return 0;
 
-			return cmd.sync(log);
+			std::unordered_map<std::string, std::vector<std::string>> vars({
+				{"in", inputs},
+				{"out", {output}}
+			});
+
+			vars.merge(flags);
+			
+			return cmd.sync(log, vars);
 		}
 
 		inline std::future<int> async(Log& log) override {
@@ -587,8 +614,31 @@ inline const std::string_view C_COMPILER_NAME =
 
 			if(!smartRun())
 				return std::async(std::launch::async, []{ return 0; });
+
+			std::unordered_map<std::string, std::vector<std::string>> vars({
+				{"in", inputs},
+				{"out", {output}}
+			});
+
+			vars.merge(flags);
 			
-			return cmd.async(log);
+			return cmd.async(log, vars);
+		}
+
+		inline std::string ninja() const {
+			std::stringstream ss;
+			ss << "build " << output << ": " << cmd.name;
+
+			for(const auto& in: inputs)
+				ss << " " << in;
+
+			for(const auto& [name, values]: flags){
+				ss << std::endl << "    " << name << " =";
+				for(const auto& value: values)
+					ss << " " << value;
+			}
+			
+			return ss.str();
 		}
 
 		// TODO: inline std::string ninja()
@@ -697,11 +747,9 @@ inline const std::string_view C_COMPILER_NAME =
 				}
 				out = "build/" + name + "/" + mod.name + "/" + out + outext;
 	
-				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext].compile({
-							{"in", {file.string()}},
-							{"out", {out}},
-							{"mod", {mod.name}}
-						}).cmd);
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], std::unordered_map<std::string, std::vector<std::string>>{
+						{"mod", {mod.name}}
+					});
 			}
 	
 			for(const auto& entry: ret){
@@ -737,12 +785,13 @@ inline const std::string_view C_COMPILER_NAME =
 					continue;
 				ret.inputs.emplace_back(file.path());
 			}
-	
-			ret.cmd = (*cmds.begin()).compile({
-					{"out", {ret.output}},
-					{"in", ret.inputs},
-					{"mod", {mod.name}}
-				});
+
+			ret.cmd = *cmds.begin();
+			ret.flags = {
+				{"mod", {mod.name}}
+			};
+
+			mod.files.emplace_back(ret.output);
 	
 			return {ret};
 		}
@@ -765,9 +814,9 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["cc"] = C_COMPILER_NAME;
 			flags["cxx"] = CXX_COMPILER_NAME;
 			flags["ld"] = C_COMPILER_NAME;
-			flags["ar"] = "ar";
+			flags["ar"] = "ar"; // TODO DELETE?
 			flags["build"] = "build";
-			flags["src"] = "src";
+			flags["src"] = "src"; // TODO: DELETE?
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -814,9 +863,11 @@ inline const std::string_view C_COMPILER_NAME =
 		inline void fresh(){
 			if(!isFresh()){
 				int ret = 0;
+				
+				std::string old = exe.string() + ".old";
 
 				// Save exe to .old
-				ret = exe.copy(log, exe.string() + ".old");
+				ret = exe.copy(log, old);
 				if(ret) std::exit(ret);
 				
 				// Recompile
@@ -834,7 +885,12 @@ inline const std::string_view C_COMPILER_NAME =
 						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
 				}
 
-				std::exit(cmd.sync(log));
+				int status = cmd.sync(log);
+
+				if(status == 0 && isFlagSet("clean", false))
+					std::filesystem::remove(old);
+
+				std::exit(status);
 			}
 		}
 
@@ -842,6 +898,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags.find(name) != flags.end();
 		}
 
+		// TODO: What about ~ variant
 		inline std::string getFlag(std::string_view name, std::string_view dflt = ""){
 			if(!hasFlag(name))
 				return std::string(dflt);
@@ -864,23 +921,21 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags[name] != "no" && flags[name] != "0";
 		}
 
-		inline std::size_t cmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
-			std::string n(name);
-
-			if(!force && cmds.find(n) != cmds.end())
+		inline std::size_t cmd(const CmdTmpl& cmd, bool force = false){
+			if(!force && cmds.find(cmd.name) != cmds.end())
 				return std::numeric_limits<std::size_t>::max();
 
-			auto [ix, _] = cmds.emplace(n, cmd);
+			auto [ix, _] = cmds.emplace(cmd.name, cmd);
 			return ix;
 		}
 
 		inline std::size_t cmd(std::string_view name, const std::vector<std::string>& cmd){
-			return this->cmd(name, CmdTmpl{cmd});
+			return this->cmd(CmdTmpl{name, cmd});
 		}
 
 		template<std::size_t N>
 		inline std::size_t cmd(std::string_view name, const std::array<std::string, N>& cmd){
-			return this->cmd(name, CmdTmpl{cmd});
+			return this->cmd(CmdTmpl{name, cmd});
 		}
 
 		inline std::size_t mod(std::string_view name, bool src = true){
@@ -955,6 +1010,8 @@ inline const std::string_view C_COMPILER_NAME =
 
 			int ret = 0;
 
+			std::vector<Module> mods = this->mods;
+
 			CmdPool pool;
 			for(const auto& stage: stages){
 				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
@@ -983,105 +1040,35 @@ inline const std::string_view C_COMPILER_NAME =
 				}
 			}
 
-			for(Module& mod: mods){
-				// What about ~[name]
+			for(Module& mod: mods)
 				mod.disabled = !isFlagSet(mod.name, !dflt);
-			}
 
-			return build();
+			// TODO: ninja
+			// TODO: make[file]
+
+			if(isFlagSet("clean", false))
+				// TODO: Add removing to API with Log
+				std::filesystem::remove_all(getFlag("build"));
+
+			if(isFlagSet("build", true))
+				return build();
+
+			return 0;
 		}
 
-#if 0
 		inline int ninja(std::ostream& out){
-			for(const auto& [name, tmpl_ix]: cmds.dict){
-				const CmdTmpl& tmpl = cmds[tmpl_ix];
-				out << "rule " << name << std::endl;
+			for(const CmdTmpl& tmpl: cmds){
+				out << "rule " << tmpl.name << std::endl;
 				out << "  command = " << tmpl.compile().str() << std::endl;
 				out << std::endl;
 			}
 
-			for(auto& [name, mod]: mods){
-				mod.objs.clear();
-
-				for(const auto& dir: mod.dirs){
-					for(const auto& file: dir.files()){
-						std::string ext = file.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.string() + getFlag(".o");
-								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.string() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
+			// TODO: Phony targets
+			for(const auto& stage: stages){
+				for(auto& mod: mods){
+					for(const CmdEntry& cmd: stage->apply(mod)){
+						out << cmd.ninja() << std::endl;
 					}
-				}
-
-				if(!mod.files.empty()){
-					std::size_t index = 0;
-					for(const auto& file: mod.files){
-						std::string ext = file.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + getFlag(".o");
-								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.string() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
-					}
-				}
-			}
-
-			for(const auto& [name, mod]: mods){
-				switch(mod.type){
-					case ModType::EXE:
-					{
-						out << "build " << flags["build"] << "/bin/" << name << ": exe";
-						
-						for(const auto& e: mod.objs) 
-							out << " " << e;
-
-						for(const auto& dep: mod.deps)
-							out << " " << flags["build"] << "/lib/lib" << dep << getFlag(".a");
-						
-						out << std::endl;
-
-						if(!mod.flags.empty()){
-							out << "  flags = ";
-							for(const auto& e: mod.flags)
-								out << " " << e;
-							out << std::endl;
-						}
-					} break;
-					case ModType::LIB:
-					{
-						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-
-						out << "build " << flags["build"] << "/lib/" << name << getFlag(".so") << ": dll";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
-					case ModType::STATIC:
-					{
-						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
-					case ModType::APP:
-					{
-						out << "build " << flags["build"] << "/app/" << name << getFlag(".so") << ": dll";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
 				}
 			}
 				
@@ -1100,6 +1087,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return ret;
 		}
 
+#if 0
 		inline int makefile(std::ostream& out){
 			std::unordered_set<std::string> dirs;
 			if(hasExe) dirs.insert(std::string(flags["build"]) + "/bin");

@@ -12,16 +12,16 @@ int main(int argc, const char** argv){
 
 	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "$in", "-o", "$out"});
 	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "$in", "-o", "$out"});
-	std::size_t exe_ix = bro.cmd("exe", {"gcc", "$in", "-o", "$out", "$flags"});
+	std::size_t exe_ix = bro.cmd("exe", {"gcc", "$in", "-o", "$out", "$flags", "-lstdc++"});
 
-	bro::CmdTmpl run({"./$in"});
+	bro::CmdTmpl run("run", {"./$in"});
 
 	std::filesystem::create_directories("src/mod");
 	std::filesystem::create_directories("src/common");
 	std::filesystem::create_directories("common");
 	bro::Directory mod("src/mod");
 
-	std::size_t mod_ix = bro.mod("mod");
+	std::size_t mod_ix = bro.mod("mod", false);
 	// bro.link("mod", "-lstdc++");
 
 	std::size_t obj_ix = bro.transform("obj", ".o");
@@ -29,12 +29,14 @@ int main(int argc, const char** argv){
 	bro.useCmd(obj_ix, cc_ix, ".c");
 
 	std::size_t bin_ix = bro.link("bin", "$mod");
-	bro.stages[bin_ix]->add(".o", bro.cmds[exe_ix].resolve("flags", "-lstdc++"));
+	bro.useCmd(bin_ix, exe_ix, ".o");
 
 	bro.applyMod(obj_ix, mod_ix);
 	bro.applyMod(bin_ix, mod_ix);
 
 	{
+		bro.log.info("NO: {}", 1);
+
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();int main(){std::cout << \"Hello World!\" << std::endl; hello(); return 0;}";
 		mod_main.close();
@@ -51,6 +53,8 @@ int main(int argc, const char** argv){
 	}
 
 	{
+		bro.log.info("NO: {}", 2);
+
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();void bye();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); return 0;}";
 		mod_main.close();
@@ -68,11 +72,15 @@ int main(int argc, const char** argv){
 	}
 
 	{
+		bro.log.info("NO: {}", 3);
+
 		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
 	{
+		bro.log.info("NO: {}", 4);
+
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();extern \"C\" void bye();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); return 0;}";
 		mod_main.close();
@@ -91,6 +99,8 @@ int main(int argc, const char** argv){
 	}
 
 	{
+		bro.log.info("NO: {}", 5);
+
 		std::filesystem::rename("src/mod/bye.c", "src/common/bye.c");
 
 		bro.mods[mod_ix].files.clear();
@@ -102,6 +112,8 @@ int main(int argc, const char** argv){
 	}
 
 	{
+		bro.log.info("NO: {}", 6);
+
 		std::ofstream mod_main("src/mod/main.cpp");
 		mod_main << "#include <iostream>\nvoid hello();extern \"C\" void bye();extern \"C\" void ex();int main(){std::cout << \"Hello World!\" << std::endl; hello(); bye(); ex(); return 0;}";
 		mod_main.close();
@@ -119,17 +131,17 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-#if 0
 	{
 		std::filesystem::remove_all("build");
 		bro.ninja();
 
-		bro::CmdTmpl ninja({"ninja"});
+		bro::Cmd ninja({"ninja"});
 		ninja.sync(bro.log);
-		
+
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
+#if 0
 	{
 		std::filesystem::remove_all("build");
 		bro.makefile();
