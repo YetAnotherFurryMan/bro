@@ -22,13 +22,16 @@
  * SOFTWARE.
  */
 
-// TODO: Write a function for space escaping
+// TODO: Write an insert function for Dictionary and for stage API
+// TODO: Batch size
+// TODO: Mercurial and Git support
 
 #pragma once
 
 #include <array>
 #include <vector>
 #include <future>
+#include <limits>
 #include <sstream>
 #include <fstream>
 #include <iomanip>
@@ -36,8 +39,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
+#include <unordered_map>
 
 namespace bro{
 
@@ -62,6 +65,170 @@ inline const std::string_view C_COMPILER_NAME =
 	"cc"
 #endif
 ;
+
+	// TODO: Check C++ wersion, if 20 replace with official implementation
+	inline bool starts_with(const std::string& a, std::string_view b){
+		if(a.length() < b.length())
+			return false;
+	
+		for(std::size_t i = 0; i < b.length(); i++)
+			if(a[i] != b[i])
+				return false;
+	
+		return true;
+	}
+
+	struct String: public std::string {
+		String() = default;
+		
+		String(std::string_view str):
+			std::string{str}
+		{}
+
+		String(const std::string& str):
+			std::string{str}
+		{}
+
+		String(const char* str):
+			std::string{str}
+		{}
+
+		String(const std::filesystem::path str):
+			std::string{str}
+		{}
+
+		String escape() const {
+			const std::string needs = "\" \n\r";
+			if(find_first_of(needs) != std::string::npos){
+				std::stringstream ss;
+				ss << std::quoted(*this);
+				return ss.str();
+			}
+
+			return *this;
+		}
+
+		std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict, std::string::size_type pos = 0) const {
+			if(pos >= size())
+				return {*this};
+
+			std::string::size_type dollar = find('$', pos);
+			if(dollar == std::string::npos)
+				return {*this};
+
+			if(dollar + 1 >= size())
+				return {*this};
+
+			if(at(dollar + 1) == '$'){
+				String s = *this;
+				s.replace(dollar, 2, "$");
+				return s.resolve(dict, dollar + 2);
+			}
+
+			if(at(dollar + 1) != '{')
+				return resolve(dict, dollar + 1);
+
+			std::string::size_type end = find('}', dollar);
+			if(end == std::string::npos)
+				return {*this};
+
+			std::string var = substr(dollar + 2, end - dollar - 2);
+			const auto vals = dict.find(var);
+			if(vals == dict.end() || (*vals).second.size() == 0){
+				String s = *this;
+				s.replace(dollar, end - dollar + 1, "");
+				return s.resolve(dict, dollar);
+			}
+
+			std::vector<String> ret;
+			for(const auto& val: (*vals).second){
+				String s = *this;
+				s.replace(dollar, end - dollar + 1, val);
+				const auto& variants = s.resolve(dict, dollar + val.size() + 1);
+				ret.insert(ret.end(), variants.begin(), variants.end());
+			}
+
+			return ret;
+		}
+
+		std::unordered_set<std::string> variables() const {
+			std::unordered_set<std::string> ret;
+
+			std::string::size_type pos = 0;
+			while((pos = find('$', pos)) != std::string::npos){
+				if(pos + 1 >= size() || at(pos + 1) != '{'){
+					pos += 2;
+					continue;
+				}
+
+				std::string::size_type end = find('}', pos);
+				if(end == std::string::npos)
+					return ret;
+
+				ret.emplace(substr(pos + 2, end - pos - 2));
+				pos = end;
+			}
+
+			return ret;
+		}
+	};
+
+	template <typename K, typename V>
+	struct Dictionary: public std::vector<V>{
+		std::unordered_map<K, std::size_t> dict;
+
+		inline V& operator[](const K& ix){
+			if(dict.find(ix) == dict.end()){
+				std::size_t i = std::vector<V>::size();
+				std::vector<V>::emplace_back();
+				dict[ix] = i;
+				return std::vector<V>::operator[](i);
+			}
+
+			return std::vector<V>::operator[](dict[ix]);
+		}
+
+		inline V& operator[](const std::size_t ix){
+			return std::vector<V>::operator[](ix);
+		}
+
+		inline bool alias(const K& ix1, std::size_t ix2){
+			if(ix2 >= std::vector<V>::size())
+				return true;
+
+			dict[ix1] = ix2;
+
+			return false;
+		}
+
+		inline bool alias(const K& ix1, const K& ix2){
+			if(dict.find(ix2) == dict.end())
+				return true;
+
+			return alias(ix1, dict[ix2]);
+		}
+
+		inline typename std::vector<V>::iterator find(const K& ix){
+			if(dict.find(ix) == dict.end())
+				return std::vector<V>::end();
+
+			return std::vector<V>::begin() + dict[ix];
+		}
+
+		template<typename... Args>
+		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
+			if(dict.find(ix) != dict.end()){
+				std::size_t i = dict[ix];
+				V& ref = (std::vector<V>::operator[](i) = V(std::forward<Args>(args)...));
+				return std::pair<std::size_t, V&>(i, ref);
+			}
+
+			std::size_t i = std::vector<V>::size();
+			V& ref = std::vector<V>::emplace_back(std::forward<Args>(args)...);
+			dict[ix] = i;
+			return std::pair<std::size_t, V&>(i, ref);
+		}
+	};
 
 	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
@@ -110,21 +277,25 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
-	struct File{
+	struct File: public std::filesystem::path{
 		bool exists = false;
-		std::filesystem::path path;
 		std::filesystem::file_time_type time;
 
 		File() = default;
+		File(const File& other) = default;
 
 		File(std::filesystem::path p):
-			path{p}
+			std::filesystem::path{p}
 		{
 			exists = std::filesystem::exists(p);
 
 			if(exists){
 				time = std::filesystem::last_write_time(p);
 			}
+		}
+
+		constexpr const std::filesystem::path& path() const {
+			return *this;
 		}
 
 		inline bool operator>(const File& f) const {
@@ -137,15 +308,15 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int copy(Log& log, std::filesystem::path to) const {
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 
 			std::error_code ec;
-			std::filesystem::copy(path, to, std::filesystem::copy_options::overwrite_existing, ec);
+			std::filesystem::copy(*this, to, std::filesystem::copy_options::overwrite_existing, ec);
 			
 			if(ec){
-				log.error("Failed to copy from {} to {}: {}", path, to, ec);
+				log.error("Failed to copy from {} to {}: {}", path(), to, ec);
 				return ec.value();
 			}
 
@@ -154,19 +325,19 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int move(Log& log, std::filesystem::path to){
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 
 			std::error_code ec;
-			std::filesystem::rename(path, to, ec);
+			std::filesystem::rename(path(), to, ec);
 			
 			if(ec){
-				log.error("Failed to move from {} to {}: {}", path, to, ec);
+				log.error("Failed to move from {} to {}: {}", path(), to, ec);
 				return ec.value();
 			}
 
-			path = to;
+			*this = to;
 
 			return 0;
 		}
@@ -177,10 +348,10 @@ inline const std::string_view C_COMPILER_NAME =
 		Directory(std::filesystem::path p): File{p} {}
 
 		inline int copyTree(Log& log, std::filesystem::path p) const {
-			log.info("Copying tree {} => {}", path, p);
+			log.info("Copying tree {} => {}", path(), p);
 
 			if(!exists){
-				log.error("File does not exist {}", path);
+				log.error("File does not exist {}", path());
 				return 1;
 			}
 			
@@ -193,9 +364,9 @@ inline const std::string_view C_COMPILER_NAME =
 				return ec.value();
 			}
 
-			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path())){
 				if(std::filesystem::is_directory(e.status())){
-					std::filesystem::path p2 = p / std::filesystem::relative(e.path(), path);
+					std::filesystem::path p2 = p / std::filesystem::relative(e.path(), path());
 					std::filesystem::create_directory(p2, ec);
 
 					if(ec){
@@ -213,7 +384,7 @@ inline const std::string_view C_COMPILER_NAME =
 			if(!exists)
 				return files;
 
-			for(const auto& e: std::filesystem::recursive_directory_iterator(path)){
+			for(const auto& e: std::filesystem::recursive_directory_iterator(path())){
 				if(std::filesystem::is_regular_file(e.status())){
 					files.emplace_back(e.path());
 				}
@@ -221,52 +392,62 @@ inline const std::string_view C_COMPILER_NAME =
 
 			return files;
 		}
+
+		inline bool make(Log& log) const {
+			if(exists)
+				return false;
+
+			log.info("Making directory: {}", path());
+			std::filesystem::create_directories(path());
+			return true;
+		}
 	};
 
 	struct Runnable{
-		inline virtual int sync(Log& log) = 0;
-		inline virtual std::future<int> async(Log& log) = 0;
+		inline virtual int sync(Log& log) const = 0;
+		inline virtual std::future<int> async(Log& log) const = 0;
 		virtual ~Runnable() = default;
 	};
 
 	struct Cmd: public Runnable{
-		std::vector<std::string> cmd;
+		std::vector<String> cmd;
 		
 		Cmd() = default;
 
-		Cmd(const std::string* cmd, std::size_t cmd_size):
-			cmd{cmd, cmd + cmd_size}
-		{}
-
-		Cmd(const std::vector<std::string>& cmd):
+		Cmd(const std::vector<String>& cmd):
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		Cmd(const std::array<std::string, N>& cmd):
+		Cmd(const std::array<String, N>& cmd):
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		inline std::string str(){
+		inline String str() const {
 			std::stringstream ss;
-			for(const auto& e: cmd){
-				if(e.find('"') != std::string::npos ||
-				   e.find(' ') != std::string::npos)
-					ss << " " << std::quoted(e);
-				else
-					ss << " " << e;
-			}
+			for(const auto& e: cmd)
+				ss << " " << e.escape();
 
 			return ss.str().substr(1);
 		}
 
-		inline int sync(Log& log) override {
+		inline int sync(Log& log) const override {
+			if(cmd.size() == 0){
+				log.error("Cannot run empty CMD...");
+				return -1;
+			}
+
 			std::string line = str();
 			log.cmd(line);
 			return system(line.c_str());
 		}
 
-		inline std::future<int> async(Log& log) override {
+		inline std::future<int> async(Log& log) const override {
+			if(cmd.size() == 0){
+				log.error("Cannot run empty CMD...");
+				return std::async([](){ return -1; });
+			}
+			
 			std::string line = str();
 			log.cmd(line);
 			return std::async([](std::string line){
@@ -276,106 +457,46 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdTmpl{
-		std::string inext;
-		std::string outext;
-		std::vector<std::string> cmd;
+		std::string name;
+		std::vector<String> cmd;
 
 		CmdTmpl() = default;
 		
-		CmdTmpl(const std::string* cmd, std::size_t cmd_size):
-			cmd{cmd, cmd + cmd_size}
-		{}
-
-		CmdTmpl(const std::vector<std::string>& cmd):
+		CmdTmpl(std::string_view name, const std::vector<String>& cmd):
+			name{name},
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		CmdTmpl(const std::array<std::string, N>& cmd):
+		CmdTmpl(std::string_view name, const std::array<String, N>& cmd):
+			name{name},
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		CmdTmpl(std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size):
-			inext{inext},
-			outext{outext},
-			cmd{cmd, cmd + cmd_size}
-		{}
+		inline std::unordered_set<std::string> variables() const {
+			std::unordered_set<std::string> ret;
 
-		CmdTmpl(std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd):
-			inext{inext},
-			outext{outext},
-			cmd{cmd}
-		{}
-
-		template<std::size_t N>
-		CmdTmpl(std::string_view inext, std::string_view outext, std::array<std::string, N> cmd):
-			inext{inext},
-			outext{outext},
-			cmd{cmd.begin(), cmd.end()}
-		{}
-
-		inline CmdTmpl resolve(std::string_view name, std::string_view value) const {
-			CmdTmpl ret = *this;
-
-			std::string v_name = "$";
-			v_name += name;
-
-			for(auto& e: ret.cmd){
-				auto pos = e.find(v_name);
-				while(pos != std::string::npos){
-					e.replace(pos, v_name.length(), value);
-					pos = e.find(v_name, pos + v_name.length());
-				}
-			}
-
+			for(const auto& e: cmd)
+				ret.merge(e.variables());
+			
 			return ret;
 		}
 
-		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
-			CmdTmpl ret;
-			ret.inext = this->inext;
-			ret.outext = this->outext;
-
-			std::string v_name = "$";
-			v_name += name;
-
-			for(const auto& e: this->cmd){
-				auto pos = e.find(v_name);
-				if(pos == std::string::npos){
-					ret.cmd.push_back(e);
-				} else{
-					for(const auto& value: values){
-						auto p = pos;
-						std::string bit = e;
-						while(p != std::string::npos){
-							bit.replace(p, v_name.length(), value);
-							p = bit.find(v_name, p + v_name.length());
-						}
-						ret.cmd.push_back(bit);
-					}
-				}
+		inline std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict) const {
+			std::vector<String> ret;
+			for(const auto& e: cmd){
+				const auto& resolved = e.resolve(dict);
+				ret.insert(ret.end(), resolved.begin(), resolved.end());
 			}
-
 			return ret;
 		}
 
 		inline Cmd compile() const {
-			return Cmd(resolve("$dollar", "$").cmd);
+			return Cmd(resolve({}));
 		}
 
 		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
-			std::vector<std::string> keys;
-			for(const auto& [key, val]: vars){
-				keys.emplace_back(key);
-			}
-			std::sort(keys.begin(), keys.end());
-			
-			CmdTmpl cmd = *this;
-			for(const auto& key: keys){
-				cmd = cmd.resolve(key, vars.at(key));
-			}
-
-			return cmd.compile();
+			return Cmd(resolve(vars));
 		}
 
 		inline int sync(Log& log) const {
@@ -406,7 +527,7 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdPool: public std::vector<std::unique_ptr<Runnable>> {
-		inline int sync(Log& log){
+		inline int sync(Log& log) const {
 			int ret = 0;
 			for(auto& cmd: *this){
 				ret = cmd->sync(log);
@@ -415,10 +536,10 @@ inline const std::string_view C_COMPILER_NAME =
 			return 0;
 		}
 
-		inline CmdPoolAsync async(Log& log){
+		inline CmdPoolAsync async(Log& log) const {
 			CmdPoolAsync pool;
-			for(auto& cmd: *this){
-				pool.push_back(cmd->async(log));
+			for(const auto& cmd: *this){
+				pool.emplace_back(cmd->async(log));
 			}
 			return pool;
 		}
@@ -430,7 +551,7 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct CmdQueue: public std::vector<std::unique_ptr<Runnable>>, public Runnable {
-		inline int sync(Log& log) override {
+		inline int sync(Log& log) const override {
 			int ret = 0;
 			for(auto& cmd: *this){
 				ret = cmd->sync(log);
@@ -439,8 +560,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return 0;
 		}
 
-		inline std::future<int> async(Log& log) override {
-			return std::async([](Log* log, CmdQueue* q){
+		inline std::future<int> async(Log& log) const override {
+			return std::async([](Log* log, const CmdQueue* q){
 				return q->sync(*log);
 			}, &log, this);
 		}
@@ -451,29 +572,290 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
-	enum class ModType{
-		EXE,
-		LIB,
-		STATIC,
-		APP
+	struct CmdEntry: public Runnable{
+		CmdTmpl cmd;
+		std::string output;
+		std::vector<std::string> inputs;
+		std::vector<std::string> dependences;
+		std::unordered_map<std::string, std::vector<std::string>> flags;
+		bool smart;
+		
+		CmdEntry() = default;
+
+		CmdEntry(std::string_view output, const std::vector<std::string>& inputs, const CmdTmpl& cmd, std::unordered_map<std::string, std::vector<std::string>> flags = {}, bool smart = false):
+			cmd{cmd},
+			output{output},
+			inputs{inputs},
+			flags{flags},
+			smart{smart}
+		{}
+
+		template<std::size_t N, std::size_t M>
+		CmdEntry(std::string_view output, const std::array<std::string, N>& inputs, const CmdTmpl& cmd, std::unordered_map<std::string, std::vector<std::string>> flags = {}, bool smart = false):
+			cmd{cmd},
+			output{output},
+			inputs{inputs.begin(), inputs.end()},
+			flags{flags},
+			smart{smart}
+		{}
+
+		inline Directory directory() const {
+			return Directory{output.substr(0, output.rfind('/'))};
+		}
+
+		inline bool smartRun() const {
+			if(smart){
+				File o(output);
+				if(!o.exists)
+					return true;
+				
+				bool run = false;
+				for(const auto& i: inputs){
+					File f(i);
+					if(f > o){
+						run = true;
+						break;
+					}
+				}
+
+				if(!run) for(const auto& d: dependences){
+					File f(d);
+					if(f > o){
+						run = true;
+						break;
+					}
+				}
+
+				return run;
+			}
+
+			return true;
+		}
+
+		inline int sync(Log& log) const override {
+			directory().make(log);
+			
+			if(!smartRun())
+				return 0;
+
+			std::unordered_map<std::string, std::vector<std::string>> vars({
+				{"in", inputs},
+				{"out", {output}}
+			});
+
+			vars.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
+			
+			return cmd.sync(log, vars);
+		}
+
+		inline std::future<int> async(Log& log) const override {
+			directory().make(log);
+
+			if(!smartRun())
+				return std::async(std::launch::async, []{ return 0; });
+
+			std::unordered_map<std::string, std::vector<std::string>> vars({
+				{"in", inputs},
+				{"out", {output}}
+			});
+
+			vars.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
+			
+			return cmd.async(log, vars);
+		}
+
+		inline std::string ninja() const {
+			std::stringstream ss;
+			ss << "build " << output << ": " << cmd.name;
+
+			for(const auto& in: inputs)
+				ss << " " << in;
+
+			if(dependences.size() > 0){
+				ss << " |";
+				for(const auto& dep: dependences)
+					ss << " " << dep;
+			}
+
+			for(const auto& [name, values]: flags){
+				ss << std::endl << "    " << name << " =";
+				for(const auto& value: values)
+					ss << " " << value;
+			}
+			
+			return ss.str();
+		}
+
+		inline std::string make() const {
+			std::stringstream ss;
+			ss << output << ":";
+
+			for(const auto& in: inputs)
+				ss << " " << in;
+
+			for(const auto& dep: dependences)
+				ss << " " << dep;
+
+			ss << std::endl << "\t";
+
+			std::unordered_map<std::string, std::vector<std::string>> vars({
+				{"in", inputs},
+				{"out", {output}},
+			});
+
+			vars.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
+
+			ss << cmd.compile(vars).str() << std::endl;
+
+			return ss.str();
+		}
 	};
 
-	struct Mod{
-		ModType type;
-		std::unordered_set<std::string> cmds;
-		std::unordered_set<std::string> deps;
-		std::unordered_set<std::string> flags;
-		std::vector<Directory> dirs;
+	struct Module{
+		std::string name;
 		std::vector<File> files;
-
-		bool needsLinkage = false;
+		std::vector<std::string> deps;
+		std::vector<std::string> flags;
 		bool disabled = false;
-		std::vector<std::string> objs;
-
-		Mod() = default;
-		Mod(ModType type):
-			type{type}
+	
+		Module() = default;
+		Module(std::string_view name):
+			name{name}
 		{}
+	
+		inline bool addFile(const File& file){
+			if(!file.exists)
+				return true;
+	
+			files.emplace_back(file);
+			
+			return false;
+		}
+	
+		inline bool addFile(std::string_view file){
+			return addFile(File{file});
+		}
+	
+		inline bool addDirectory(const Directory& dir){
+			if(!dir.exists)
+				return true;
+	
+			for(const auto& file: dir.files())
+				files.emplace_back(file);
+	
+			return false;
+		}
+	
+		inline bool addDirectory(std::string_view dir){
+			return addDirectory(Directory{dir});
+		}
+	};
+
+	// TODO: Introduce * extension (for all) and maybe some pattern matching (.c*, etc.)
+	struct Stage{
+		std::string name;
+		Dictionary<std::string, CmdTmpl> cmds;
+	
+		Stage() = default;
+		Stage(std::string_view name):
+			name{name}
+		{}
+	
+		virtual ~Stage() = default;
+	
+		virtual std::vector<CmdEntry> apply(Module& mod){
+			return {};
+		};
+	
+		template<std::size_t N>
+		inline bool add(const std::array<std::string, N>& exts, const CmdTmpl& cmd){
+			if(N <= 0)
+				return true;
+
+			for(std::size_t i = 0; i < N; i++){
+				if(cmds.find(exts[i]) != cmds.end())
+					return true;
+			}
+
+			cmds[exts[0]] = cmd;
+			for(std::size_t i = 1; i < N; i++)
+				cmds.alias(exts[0], exts[i]);
+	
+			return false;
+		}
+
+		inline bool add(std::string_view ext, const CmdTmpl& cmd){
+			return add(std::array<std::string, 1>{std::string{ext}}, cmd);
+		}
+	};
+	
+	struct Transform: public Stage{
+		std::string outext;
+	
+		Transform() = default;
+		Transform(std::string_view name, std::string_view outext):
+			Stage{name},
+			outext{outext}
+		{}
+	
+		std::vector<CmdEntry> apply(Module& mod) override {
+			std::vector<CmdEntry> ret;
+			for(const auto& file: mod.files){
+				std::string ext = file.extension();
+				if(cmds.find(ext) == cmds.end())
+					continue;
+	
+				std::string out = file.string();
+				if(bro::starts_with(out, "build/")){
+					out = out.substr(out.find('/', 6)); // Cut build/$stage_name/
+					out = out.substr(out.find('/')); // Cut $mod_name/
+				}
+				out = "build/" + name + "/" + mod.name + "/" + out + outext;
+	
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], std::unordered_map<std::string, std::vector<std::string>>{
+						{"mod", {mod.name}}
+					});
+			}
+	
+			for(const auto& entry: ret){
+				mod.files.emplace_back(entry.output);
+			}
+	
+			return ret;
+		}
+	};
+	
+	struct Link: public Stage{
+		String outtmpl;
+		
+		Link() = default;
+		Link(std::string_view name, std::string_view outtmpl):
+			Stage{name},
+			outtmpl{outtmpl}
+		{}
+	
+		std::vector<CmdEntry> apply(Module& mod) override {
+			CmdEntry ret;
+			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
+			ret.dependences = mod.deps;
+			
+			for(const auto& file: mod.files){
+				std::string ext = file.extension();
+				if(cmds.find(ext) == cmds.end())
+					continue;
+				ret.inputs.emplace_back(file.path());
+			}
+
+			ret.cmd = *cmds.begin();
+			ret.flags = {
+				{"mod", {mod.name}},
+				{"flags", mod.flags}
+			};
+
+			mod.files.emplace_back(ret.output);
+	
+			return {ret};
+		}
 	};
 
 	struct Bro{
@@ -481,22 +863,11 @@ inline const std::string_view C_COMPILER_NAME =
 		File header;
 		File src;
 		File exe;
-		std::unordered_map<std::string, CmdTmpl> cmds;
-		std::unordered_map<std::string, Mod> mods;
+		Dictionary<std::string, CmdTmpl> cmds;
+		Dictionary<std::string, Module> mods;
+		Dictionary<std::string, std::unique_ptr<Stage>> stages;
+		std::unordered_map<std::size_t, std::unordered_set<std::size_t>> mods4stage;
 		std::unordered_map<std::string_view, std::string_view> flags;
-		bool hasExe = false;
-		bool hasLib = false;
-		bool hasApp = false;
-
-		inline void _setup_cmds(){
-			CmdTmpl lib({std::string(flags["ar"]), "rcs", "$out", "$in"});
-			CmdTmpl dll({std::string(flags["ld"]), "$in", "-o", "$out", "-shared"});
-			CmdTmpl exe({std::string(flags["ld"]), "$flags", "$in", "-o", "$out"});
-
-			registerCmd("lib", lib, true);
-			registerCmd("dll", dll, true);
-			registerCmd("exe", exe, true);
-		}
 
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
@@ -504,13 +875,9 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["cc"] = C_COMPILER_NAME;
 			flags["cxx"] = CXX_COMPILER_NAME;
 			flags["ld"] = C_COMPILER_NAME;
-			flags["ar"] = "ar";
+			flags["ar"] = "ar"; // TODO DELETE?
 			flags["build"] = "build";
-			flags[".o"] = ".o";
-			flags[".a"] = ".a";
-			flags[".so"] = ".so";
-
-			_setup_cmds();
+			flags["src"] = "src"; // TODO: DELETE?
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -546,8 +913,6 @@ inline const std::string_view C_COMPILER_NAME =
 					flags[arg] = "yes";
 				}
 			}
-
-			_setup_cmds();
 		}
 
 		inline bool isFresh(){
@@ -559,13 +924,15 @@ inline const std::string_view C_COMPILER_NAME =
 		inline void fresh(){
 			if(!isFresh()){
 				int ret = 0;
+				
+				std::string old = exe.string() + ".old";
 
 				// Save exe to .old
-				ret = exe.copy(log, exe.path.string() + ".old");
+				ret = exe.copy(log, old);
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				Cmd cmd({std::string(flags["cxx"]), "-o", exe.path, src.path});
+				Cmd cmd({String(flags["cxx"]), "-o", exe.path(), src.path()});
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
@@ -573,13 +940,18 @@ inline const std::string_view C_COMPILER_NAME =
 
 				// Run
 				cmd.cmd.clear();
-				cmd.cmd.push_back(exe.path);
+				cmd.cmd.emplace_back(exe.path());
 				for(const auto& [name, value]: flags){
 					if(name[0] != '~')
 						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
 				}
 
-				std::exit(cmd.sync(log));
+				int status = cmd.sync(log);
+
+				if(status == 0 && isFlagSet("clean", false))
+					std::filesystem::remove(old);
+
+				std::exit(status);
 			}
 		}
 
@@ -587,6 +959,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags.find(name) != flags.end();
 		}
 
+		// TODO: What about ~ variant
 		inline std::string getFlag(std::string_view name, std::string_view dflt = ""){
 			if(!hasFlag(name))
 				return std::string(dflt);
@@ -609,375 +982,179 @@ inline const std::string_view C_COMPILER_NAME =
 			return flags[name] != "no" && flags[name] != "0";
 		}
 
-		inline bool registerCmd(std::string_view name, const CmdTmpl& cmd, bool force = false){
-			std::string n(name);
+		inline std::size_t cmd(const CmdTmpl& cmd, bool force = false){
+			if(!force && cmds.find(cmd.name) != cmds.end())
+				return std::numeric_limits<std::size_t>::max();
 
-			if(!force && cmds.find(n) != cmds.end())
-				return true;
-
-			cmds[n] = cmd;
-			return false;
+			auto [ix, _] = cmds.emplace(cmd.name, cmd);
+			return ix;
 		}
 
-		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::string* cmd, std::size_t cmd_size){
-			return registerCmd(name, CmdTmpl{inext, outext, cmd, cmd_size});
-		}
-
-		inline bool registerCmd(std::string_view name, std::string_view inext, std::string_view outext, const std::vector<std::string>& cmd){
-			return registerCmd(name, CmdTmpl{inext, outext, cmd});
+		inline std::size_t cmd(std::string_view name, const std::vector<String>& cmd){
+			return this->cmd(CmdTmpl{name, cmd});
 		}
 
 		template<std::size_t N>
-		inline bool registerCmd(std::string_view name, std::string_view ext, const std::array<std::string, N>& cmd){
-			return registerCmd(name, CmdTmpl{ext, cmd});
+		inline std::size_t cmd(std::string_view name, const std::array<String, N>& cmd){
+			return this->cmd(CmdTmpl{name, cmd});
 		}
 
-		inline bool registerModule(ModType type, std::string_view name, bool src = true){
-			std::string n(name);
+		inline std::size_t mod(std::string_view name, bool src = true){
+			std::string n{name};
 
 			if(mods.find(n) != mods.end())
-				return true;
+				return std::numeric_limits<std::size_t>::max();
 
-			switch(type){
-				case ModType::EXE: hasExe = true; break;
-				case ModType::STATIC:
-				case ModType::LIB: hasLib = true; break;
-				case ModType::APP: hasApp = true; break;
-			}
-
-			auto [it, ins] = mods.emplace(n, Mod{type});
+			auto [ix, ref] = mods.emplace(n, name);
 
 			if(src){
 				Directory d("src/" + std::string{name});
 				if(d.exists){
-					(*it).second.dirs.push_back(d);
+					ref.addDirectory(d);
 				}
 			}
 
-			return ins;
+			return ix;
 		}
 
-		inline bool use(std::string_view mod, std::string_view cmd){
-			std::string m(mod);
-			std::string c(cmd);
+		// TODO: Test these types (Ix, Path) to be accurate
+		template<typename Ix, typename Path>
+		inline bool addFile(Ix ix, Path path){
+			return mods[ix].addFile(path);
+		}
 
-			if(mods.find(m) == mods.end() || cmds.find(c) == cmds.end())
+		template<typename Ix, typename Path>
+		inline bool addDirectory(Ix ix, Path path){
+			return mods[ix].addDirectory(path);
+		}
+
+		template<typename Ix>
+		inline void addFlag(Ix ix, std::string_view flag){
+			mods[ix].flags.emplace_back(flag);
+		}
+
+		template<typename T>
+		inline typename std::enable_if<std::is_base_of<Stage, T>::value, std::size_t>::type
+		stage(std::string_view name, std::unique_ptr<T> stage){
+			std::string n{name};
+
+			if(stages.find(n) != stages.end())
+				return std::numeric_limits<std::size_t>::max();
+
+			auto [ix, ref] = stages.emplace(n, std::move(stage));
+
+			return ix;
+		}
+
+		template<typename T>
+		inline typename std::enable_if<std::is_base_of<Stage, T>::value, std::size_t>::type
+		stage(std::string_view name, const T& stage){
+			std::string n{name};
+
+			if(stages.find(n) != stages.end())
+				return std::numeric_limits<std::size_t>::max();
+
+			auto [ix, ref] = stages.emplace(n, std::make_unique<T>(stage));
+
+			return ix;
+		}
+
+		inline std::size_t transform(std::string_view name, std::string_view outext){
+			return stage(name, Transform{name, outext});
+		}
+
+		inline std::size_t link(std::string_view name, std::string_view outtmpl){
+			return stage(name, Link{name, outtmpl});
+		}
+
+		inline bool useCmd(std::size_t stage, std::size_t cmd, std::string_view ext){
+			if(stage >= stages.size() || cmd >= cmds.size())
 				return true;
 
-			mods[m].cmds.insert(c);
+			return stages[stage]->add(ext, cmds[cmd]);
+		}
+
+		inline bool applyMod(std::size_t stage, std::size_t mod){
+			if(stage >= stages.size() || mod >= mods.size())
+				return true;
+
+			mods4stage[stage].insert(mod);
 			return false;
-		}
-
-		inline bool dep(std::string_view mod, std::string_view lib){
-			std::string m(mod);
-			std::string l(lib);
-
-			if(mods.find(m) == mods.end() || mods.find(l) == mods.end() || (mods[l].type != ModType::LIB && mods[l].type != ModType::STATIC))
-				return true;
-
-			mods[m].deps.insert(l);
-			return false;
-		}
-
-		inline bool link(std::string_view mod, std::string_view flag){
-			std::string m(mod);
-			std::string f(flag);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			mods[m].flags.insert(f);
-
-			return false;
-		}
-
-		inline bool addDirectory(std::string_view mod, Directory dir){
-			std::string m(mod);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			if(!dir.exists)
-				return true;
-
-			mods[m].dirs.push_back(dir);
-
-			return false;
-		}
-
-		inline bool addDirectory(std::string_view mod, std::string_view dir){
-			return addDirectory(mod, Directory(dir));
-		}
-
-		inline bool addFile(std::string_view mod, File file){
-			std::string m(mod);
-
-			if(mods.find(m) == mods.end())
-				return true;
-
-			if(!file.exists)
-				return true;
-
-			mods[m].files.push_back(file);
-
-			return false;
-		}
-
-		inline bool addFile(std::string_view mod, std::string_view file){
-			return addFile(mod, File(file));
 		}
 
 		inline int build(){
 			std::filesystem::create_directory(flags["build"]);
-			if(hasExe) std::filesystem::create_directory(std::string(flags["build"]) + "/bin");
-			if(hasLib) std::filesystem::create_directory(std::string(flags["build"]) + "/lib");
-			if(hasApp) std::filesystem::create_directory(std::string(flags["build"]) + "/app");
 
 			int ret = 0;
 
-			// TODO: Make CmdPool Runnable and q it with linkage
+			std::vector<Module> mods = this->mods;
+
 			CmdPool pool;
-			for(auto& [name, mod]: mods){
-				if(mod.disabled)
-					break;
-
-				log.info("Module {}", name);
-
-				mod.needsLinkage = false;
-				mod.objs.clear();
-
-				for(const auto& dir: mod.dirs){
-					if((ret = dir.copyTree(log, std::string(flags["build"]) + "/obj/" + dir.path.filename().string())))
-						return ret;
-			
-					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string out = std::string(flags["build"]) + "/obj" + file.path.string().substr(3) + getFlag(".o");
-								mod.objs.push_back(out);
-								if(!(File(out) > file)){
-									mod.needsLinkage = true;
-									pool.push(cmds[cmd].compile({
-												{"out", {out}}, 
-												{"in", {file.path.string()}}
-											}));
-								}
-
-								break;
-							}
-						}
+			for(const auto& stage: stages){
+				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
+					Module& mod = mods[mod_ix];
+					if(!mod.disabled) for(auto& cmd: stage->apply(mod)){
+						cmd.smart = true;
+						pool.push(cmd);
 					}
 				}
 
-				if(!mod.files.empty()){
-					std::filesystem::create_directory(std::string(flags["build"]) + "/obj/" + name + " files");
-					std::size_t index = 0;
-					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string out = std::string(flags["build"]) + "/obj/" + name + " files/file_" + std::to_string(index++) + getFlag(".o");
-								mod.objs.push_back(out);
-								if(!(File(out) > file)){
-									mod.needsLinkage = true;
-									pool.push(cmds[cmd].compile({
-												{"out", {out}}, 
-												{"in", {file.path.string()}}
-											}));
-								}
+				if((ret = pool.async(log).wait()))
+					return ret;
 
-								break;
-							}
-						}
-					}
-				}
+				pool.clear();
 			}
 
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link libs
-			for(const auto& [name, mod]: mods){
-				if(mod.type != ModType::LIB && mod.type != ModType::STATIC)
-					continue;
-
-				if(mod.needsLinkage){
-					std::string dot_a = std::string(flags["build"]) + "/lib/lib" + name + getFlag(".a");
-					std::filesystem::remove(dot_a);
-					pool.push(cmds["lib"].compile({
-								{"out", {dot_a}},
-								{"in", mod.objs}
-							}));
-					// TODO: What about .dll?
-					if(mod.type != ModType::STATIC) 
-						pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/lib/" + name + getFlag(".so")}},
-								{"in", mod.objs}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link exes
-			for(auto& [name, mod]: mods){
-				if(mod.type != ModType::EXE)
-					continue;
-
-				for(const auto& dep: mod.deps){
-					if(mods[dep].needsLinkage)
-						mod.needsLinkage = true;
-
-					mod.objs.push_back(std::string(flags["build"]) + "/lib/lib" + dep + getFlag(".a"));
-				}
-
-				std::vector<std::string> flags(mod.flags.begin(), mod.flags.end());
-
-				if(mod.needsLinkage){
-					pool.push(cmds["exe"].compile({
-								{"out", {std::string(this->flags["build"]) + "/bin/" + name}},
-								{"in", mod.objs},
-								{"flags", flags}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			pool.clear();
-
-			// Link apps
-			for(const auto& [name, mod]: mods){
-				if(mod.type != ModType::APP)
-					continue;
-
-				if(mod.needsLinkage){
-					pool.push(cmds["dll"].compile({
-								{"out", {std::string(flags["build"]) + "/app/" + name + getFlag(".so")}}, 
-								{"in", mod.objs}
-							}));
-				}
-			}
-
-			if((ret = pool.async(log).wait()))
-				return ret;
-
-			return 0;
+			return ret;
 		}
 
 		inline int run(){
 			bool dflt = false;
-			for(auto& [name, mod]: mods){
+			for(const auto& [name, mod]: mods.dict){
 				if(isFlagSet(name)){
 					dflt = true;
 					break;
 				}
 			}
 
-			for(auto& [name, mod]: mods){
-				// What about ~[name]
-				mod.disabled = !isFlagSet(name, !dflt);
-			}
+			for(Module& mod: mods)
+				mod.disabled = !isFlagSet(mod.name, !dflt);
 
-			return build();
+			// TODO: ninja
+			// TODO: make[file]
+
+			if(isFlagSet("clean", false))
+				// TODO: Add removing to API with Log
+				std::filesystem::remove_all(getFlag("build"));
+
+			if(isFlagSet("build", true))
+				return build();
+
+			return 0;
 		}
 
 		inline int ninja(std::ostream& out){
-			for(const auto& [name, tmpl]: cmds){
-				out << "rule " << name << std::endl;
-				out << "  command = " << tmpl.compile().str() << std::endl;
+			for(const CmdTmpl& tmpl: cmds){
+				std::unordered_set<std::string> vars = tmpl.variables();
+				std::unordered_map<std::string, std::vector<std::string>> dict;
+				for(const auto& var: vars){
+					dict[var] = {"$" + var};
+				}
+
+				out << "rule " << tmpl.name << std::endl;
+				out << "  command = " << tmpl.compile(dict).str() << std::endl;
 				out << std::endl;
 			}
 
-			for(auto& [name, mod]: mods){
-				mod.objs.clear();
+			std::vector<Module> mods = this->mods;
 
-				for(const auto& dir: mod.dirs){
-					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
-								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
+			// TODO: Phony targets
+			for(const auto& stage: stages){
+				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
+					Module& mod = mods[mod_ix];
+					for(const CmdEntry& cmd: stage->apply(mod)){
+						out << cmd.ninja() << std::endl;
 					}
-				}
-
-				if(!mod.files.empty()){
-					std::size_t index = 0;
-					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "$ files/file_" + std::to_string(index++) + getFlag(".o");
-								mod.objs.push_back(obj);
-								out << "build " << obj << ": " << cmd << " " << file.path.string() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
-					}
-				}
-			}
-
-			for(const auto& [name, mod]: mods){
-				switch(mod.type){
-					case ModType::EXE:
-					{
-						out << "build " << flags["build"] << "/bin/" << name << ": exe";
-						
-						for(const auto& e: mod.objs) 
-							out << " " << e;
-
-						for(const auto& dep: mod.deps)
-							out << " " << flags["build"] << "/lib/lib" << dep << getFlag(".a");
-						
-						out << std::endl;
-
-						if(!mod.flags.empty()){
-							out << "  flags = ";
-							for(const auto& e: mod.flags)
-								out << " " << e;
-							out << std::endl;
-						}
-					} break;
-					case ModType::LIB:
-					{
-						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-
-						out << "build " << flags["build"] << "/lib/" << name << getFlag(".so") << ": dll";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
-					case ModType::STATIC:
-					{
-						out << "build " << flags["build"] << "/lib/lib" << name << getFlag(".a") << ": lib";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
-					case ModType::APP:
-					{
-						out << "build " << flags["build"] << "/app/" << name << getFlag(".so") << ": dll";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-					} break;
 				}
 			}
 				
@@ -998,9 +1175,6 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int makefile(std::ostream& out){
 			std::unordered_set<std::string> dirs;
-			if(hasExe) dirs.insert(std::string(flags["build"]) + "/bin");
-			if(hasLib) dirs.insert(std::string(flags["build"]) + "/lib");
-			if(hasApp) dirs.insert(std::string(flags["build"]) + "/app");
 
 			out << ".DEFAULT_GOAL: all" << std::endl;
 			out << ".MAIN: all" << std::endl;
@@ -1008,108 +1182,27 @@ inline const std::string_view C_COMPILER_NAME =
 			out << "default_goal: all" << std::endl;
 			out << std::endl;
 
-			for(auto& [name, mod]: mods){
-				mod.objs.clear();
-				for(const auto& dir: mod.dirs){
-					for(const auto& file: dir.files()){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + file.path.string() + getFlag(".o");
-								mod.objs.push_back(obj);
-								dirs.insert(obj.substr(0, obj.find_last_of('/')));
-								out << obj << ": " << file.path.string() << std::endl;
-								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
-					}
-				}
+			std::vector<Module> mods = this->mods;
 
-				if(!mod.files.empty()){
-					for(const auto& file: mod.files){
-						std::string ext = file.path.extension();
-						if(!ext.empty()) for(const auto& cmd: mod.cmds){
-							if(cmds[cmd].inext == ext){
-								std::string obj = std::string(flags["build"]) + "/obj/" + name + "\\\\\\ files/" + file.path.string() + getFlag(".o");
-								mod.objs.push_back(obj);
-								dirs.insert(obj.substr(0, obj.find_last_of('/')));
-								out << obj << ": " << file.path.string() << std::endl;
-								out << "\t" << cmds[cmd].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-								out << std::endl;
-								break;
-							}
-						}
+			for(const auto& stage: stages){
+				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
+					Module& mod = mods[mod_ix];
+					for(const CmdEntry& cmd: stage->apply(mod)){
+						out << cmd.make() << std::endl;
 					}
 				}
 			}
 
-			for(const auto& [name, mod]: mods){
-				out << ".PHONY: " << name << std::endl;
-				switch(mod.type){
-					case ModType::EXE:
-					{
-						out << name << ": " << flags["build"] << "/bin/" << name << std::endl;
-						out << flags["build"] << "/bin/" << name << ":";
-						
-						for(const auto& e: mod.objs) 
-							out << " " << e;
+			for(const auto& mod: mods){
+				out << ".PHONY: " << mod.name << std::endl;
+				out << mod.name << ":";
 
-						for(const auto& dep: mod.deps)
-							out << " " << flags["build"] << "/lib/lib" << dep << getFlag(".a");
-						
-						out << std::endl;
+				std::for_each(mod.files.begin() + this->mods[mod.name].files.size(), mod.files.end(), [&](const File& file){
+					dirs.insert(file.parent_path());
+					out << " " << file.string();
+				});
 
-						out << "\t" << cmds["exe"].compile({
-								{"in", {"$^"}},
-								{"out", {"$@"}},
-								{"flags", std::vector<std::string>(mod.flags.begin(), mod.flags.end())}}).str() << std::endl;
-						out << std::endl;
-
-					} break;
-					case ModType::LIB:
-					{
-						out << name << ": " << flags["build"] << "/lib/lib" << name << getFlag(".a") << " " << flags["build"] << "/lib/" << name << getFlag(".so") << std::endl;
-						out << flags["build"] << "/lib/lib" << name << getFlag(".a") << ":";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-
-						out << "\t" << cmds["lib"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-						out << std::endl;
-
-						out << flags["build"] << "/lib/" << name << getFlag(".so") << ":";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-						
-						out << "\t" << cmds["dll"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-						out << std::endl;
-					} break;
-					case ModType::STATIC:
-					{
-						out << name << ": " << flags["build"] << "/lib/lib" << name << getFlag(".a") << std::endl;
-						out << flags["build"] << "/lib/lib" << name << getFlag(".a") << ":";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-
-						out << "\t" << cmds["lib"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-						out << std::endl;
-					} break;
-					case ModType::APP:
-					{
-						out << name << ": " << flags["build"] << "/lib/" << name << getFlag(".so") << std::endl;
-						out << flags["build"] << "/app/" << name << getFlag(".so") << ":";
-						for(const auto& e: mod.objs)
-							out << " " << e;
-						out << std::endl;
-
-						out << "\t" << cmds["dll"].compile({{"in", {"$^"}}, {"out", {"$@"}}}).str() << std::endl;
-						out << std::endl;
-					} break;
-				}
+				out << std::endl << std::endl;
 			}
 
 			out << "dirs :=";
@@ -1119,8 +1212,8 @@ inline const std::string_view C_COMPILER_NAME =
 			out << std::endl;
 			out << ".PHONY: all" << std::endl;
 			out << "all: $(dirs)";
-			for(const auto& [name, mod]: mods)
-				out << " " << name;
+			for(const auto& mod: mods)
+				out << " " << mod.name;
 			out << std::endl;
 			out << std::endl;
 			out << "$(dirs):" << std::endl;
@@ -1152,6 +1245,14 @@ inline const std::string_view C_COMPILER_NAME =
 		auto time = std::chrono::time_point_cast<std::chrono::system_clock::duration>(file.time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
 		std::time_t tt = std::chrono::system_clock::to_time_t(time);
 		std::tm* tm = std::localtime(&tt);
-		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path() << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+	}
+
+	template<typename CharT, typename Traits>
+	inline std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& out, const CmdTmpl& tmpl){
+		out << "bro::CmdTmpl{'name': " << std::quoted(tmpl.name) << ", 'cmd': { ";
+		for(const auto& e: tmpl.cmd)
+			out << std::quoted(e) << " ";
+		return out << "}}";
 	}
 }
