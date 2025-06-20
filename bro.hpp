@@ -664,13 +664,18 @@ inline const std::string_view C_COMPILER_NAME =
 			return cmd.async(log, vars);
 		}
 
-		// TODO: deps
 		inline std::string ninja() const {
 			std::stringstream ss;
 			ss << "build " << output << ": " << cmd.name;
 
 			for(const auto& in: inputs)
 				ss << " " << in;
+
+			if(dependences.size() > 0){
+				ss << " |";
+				for(const auto& dep: dependences)
+					ss << " " << dep;
+			}
 
 			for(const auto& [name, values]: flags){
 				ss << std::endl << "    " << name << " =";
@@ -709,8 +714,8 @@ inline const std::string_view C_COMPILER_NAME =
 	struct Module{
 		std::string name;
 		std::vector<File> files;
-		// TODO: add deps
-		// TODO: add flags
+		std::vector<std::string> deps;
+		std::vector<std::string> flags;
 		bool disabled = false;
 	
 		Module() = default;
@@ -762,7 +767,6 @@ inline const std::string_view C_COMPILER_NAME =
 			return {};
 		};
 	
-		// TODO: Standard CmdTmpl variants
 		template<std::size_t N>
 		inline bool add(const std::array<std::string, N>& exts, const CmdTmpl& cmd){
 			if(N <= 0)
@@ -833,6 +837,7 @@ inline const std::string_view C_COMPILER_NAME =
 		std::vector<CmdEntry> apply(Module& mod) override {
 			CmdEntry ret;
 			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
+			ret.dependences = mod.deps;
 			
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
@@ -843,7 +848,8 @@ inline const std::string_view C_COMPILER_NAME =
 
 			ret.cmd = *cmds.begin();
 			ret.flags = {
-				{"mod", {mod.name}}
+				{"mod", {mod.name}},
+				{"flags", mod.flags}
 			};
 
 			mod.files.emplace_back(ret.output);
@@ -1009,6 +1015,22 @@ inline const std::string_view C_COMPILER_NAME =
 			}
 
 			return ix;
+		}
+
+		// TODO: Test these types (Ix, Path) to be accurate
+		template<typename Ix, typename Path>
+		inline bool addFile(Ix ix, Path path){
+			return mods[ix].addFile(path);
+		}
+
+		template<typename Ix, typename Path>
+		inline bool addDirectory(Ix ix, Path path){
+			return mods[ix].addDirectory(path);
+		}
+
+		template<typename Ix>
+		inline void addFlag(Ix ix, std::string_view flag){
+			mods[ix].flags.emplace_back(flag);
 		}
 
 		template<typename T>

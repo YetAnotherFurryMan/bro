@@ -35,7 +35,10 @@ int main(int argc, const char** argv){
 
     // Create a module and add the sources
     std::size_t hello_ix = bro.mod("hello", false);
-    bro.mods[hello_ix].addFile("hllo.cpp");
+    bro.addFile(hello_ix, "hllo.cpp");
+
+    // You can also add all files in a directory like that:
+    // bro.addDirectory(hello_ix, "src/hello");
 
     // Apply stages to the module
     bro.applyMod(obj_ic, hello_ix);

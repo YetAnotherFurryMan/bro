@@ -12,7 +12,7 @@ int main(int argc, const char** argv){
 
 	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "${in}", "-o", "${out}"});
 	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "${in}", "-o", "${out}"});
-	std::size_t exe_ix = bro.cmd("exe", {"gcc", "${in}", "-o", "${out}", "${flags}", "-lstdc++"});
+	std::size_t exe_ix = bro.cmd("exe", {"gcc", "${in}", "-o", "${out}", "${flags}"});
 
 	bro::CmdTmpl run("run", {"./${in}"});
 
@@ -22,7 +22,7 @@ int main(int argc, const char** argv){
 	bro::Directory mod("src/mod");
 
 	std::size_t mod_ix = bro.mod("mod", false);
-	// bro.link("mod", "-lstdc++");
+	bro.addFlag("mod", "-lstdc++");
 
 	std::size_t obj_ix = bro.transform("obj", ".o");
 	bro.useCmd(obj_ix, cxx_ix, ".cpp");
@@ -45,7 +45,7 @@ int main(int argc, const char** argv){
 		mod_hello << "#include <iostream>\nvoid hello(){std::cout << \"Hello from hello()\" << std::endl;}";
 		mod_hello.close();
 
-		bro.mods[mod_ix].addDirectory("src/mod");
+		bro.addDirectory(mod_ix, "src/mod");
 
 		bro.run();
 
@@ -64,7 +64,7 @@ int main(int argc, const char** argv){
 		mod_bye.close();
 
 		bro.mods[mod_ix].files.clear();
-		bro.mods[mod_ix].addDirectory("src/mod");
+		bro.addDirectory(mod_ix, "src/mod");
 
 		bro.run();
 
@@ -92,7 +92,7 @@ int main(int argc, const char** argv){
 		mod_bye.close();
 
 		bro.mods[mod_ix].files.clear();
-		bro.mods[mod_ix].addDirectory("src/mod");
+		bro.addDirectory(mod_ix, "src/mod");
 
 		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
@@ -104,8 +104,8 @@ int main(int argc, const char** argv){
 		std::filesystem::rename("src/mod/bye.c", "src/common/bye.c");
 
 		bro.mods[mod_ix].files.clear();
-		bro.mods[mod_ix].addDirectory("src/mod");
-		bro.mods[mod_ix].addDirectory("src/common");
+		bro.addDirectory(mod_ix, "src/mod");
+		bro.addDirectory(mod_ix, "src/common");
 
 		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
@@ -123,9 +123,9 @@ int main(int argc, const char** argv){
 		mod_bye.close();
 
 		bro.mods[mod_ix].files.clear();
-		bro.mods[mod_ix].addDirectory("src/mod");
-		bro.mods[mod_ix].addDirectory("src/common");
-		bro.mods[mod_ix].addFile("common/ex.c");
+		bro.addDirectory(mod_ix, "src/mod");
+		bro.addDirectory(mod_ix, "src/common");
+		bro.addFile(mod_ix, "common/ex.c");
 
 		bro.run();
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
@@ -144,6 +144,8 @@ int main(int argc, const char** argv){
 	}
 
 	{
+		bro.log.info("NO: {}", 8);
+
 		std::filesystem::remove_all("build");
 		bro.makefile();
 
