@@ -10,6 +10,22 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Header: {}", bro.header);
 
+	bro::String s = "This ${is} ${a} ${} $$String ${s}.";
+	bro.log.info("String s: {}", s);
+	
+	for(const auto& ss: s.resolve({
+		{"is", {"is", "was"}},
+		{"a", {"a", "an"}},
+		{"", {"bro", "interesting", "expensive", "lol"}},
+		{"s", {"s", "S", "!!!"}}
+	})){
+		bro.log.info("Resolve: {}", ss);
+	}
+	
+	bro.log.info("String s: {}", s);
+
+	return 0;
+
 	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "$in", "-o", "$out"});
 	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "$in", "-o", "$out"});
 	std::size_t exe_ix = bro.cmd("exe", {"gcc", "$in", "-o", "$out", "$flags", "-lstdc++"});

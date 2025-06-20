@@ -25,6 +25,7 @@
 // TODO: Write a function for space escaping
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
+// TODO: Mercurial and Git support
 
 #pragma once
 
@@ -77,6 +78,80 @@ inline const std::string_view C_COMPILER_NAME =
 	
 		return true;
 	}
+
+	struct String: public std::string {
+		String() = default;
+		
+		String(std::string_view str):
+			std::string{str}
+		{}
+
+		String(const std::string& str):
+			std::string{str}
+		{}
+
+		String(const char* str):
+			std::string{str}
+		{}
+
+		String(const std::filesystem::path str):
+			std::string{str}
+		{}
+
+		String escape() const {
+			const std::string needs = "\" \n\r";
+			if(find_first_of(needs) != std::string::npos){
+				std::stringstream ss;
+				ss << std::quoted(*this);
+				return ss.str();
+			}
+
+			return *this;
+		}
+
+		std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict, std::string::size_type pos = 0) const {
+			if(pos >= size())
+				return {*this};
+
+			std::string::size_type dollar = find('$', pos);
+			if(dollar == std::string::npos)
+				return {*this};
+
+			if(dollar + 1 >= size())
+				return {*this};
+
+			if(at(dollar + 1) == '$'){
+				String s = *this;
+				s.replace(dollar, 2, "$");
+				return s.resolve(dict, dollar + 2);
+			}
+
+			if(at(dollar + 1) != '{')
+				return resolve(dict, dollar + 1);
+
+			std::string::size_type end = find('}', dollar);
+			if(end == std::string::npos)
+				return {*this};
+
+			std::string var = substr(dollar + 2, end - dollar - 2);
+			const auto vals = dict.find(var);
+			if(vals == dict.end() || (*vals).second.size() == 0){
+				String s = *this;
+				s.replace(dollar, end - dollar, "");
+				return s.resolve(dict, dollar);
+			}
+
+			std::vector<String> ret;
+			for(const auto& val: (*vals).second){
+				String s = *this;
+				s.replace(dollar, end - dollar + 1, val);
+				const auto& variants = s.resolve(dict, dollar + val.size() + 1);
+				ret.insert(ret.end(), variants.begin(), variants.end());
+			}
+
+			return ret;
+		}
+	};
 
 	template <typename K, typename V>
 	struct Dictionary: public std::vector<V>{
@@ -315,28 +390,23 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	struct Cmd: public Runnable{
-		std::vector<std::string> cmd;
+		std::vector<String> cmd;
 		
 		Cmd() = default;
 
-		Cmd(const std::vector<std::string>& cmd):
+		Cmd(const std::vector<String>& cmd):
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		Cmd(const std::array<std::string, N>& cmd):
+		Cmd(const std::array<String, N>& cmd):
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		inline std::string str() const {
+		inline String str() const {
 			std::stringstream ss;
-			for(const auto& e: cmd){
-				if(e.find('"') != std::string::npos ||
-				   e.find(' ') != std::string::npos)
-					ss << " " << std::quoted(e);
-				else
-					ss << " " << e;
-			}
+			for(const auto& e: cmd)
+				ss << " " << e.escape();
 
 			return ss.str().substr(1);
 		}
@@ -368,17 +438,17 @@ inline const std::string_view C_COMPILER_NAME =
 
 	struct CmdTmpl{
 		std::string name;
-		std::vector<std::string> cmd;
+		std::vector<String> cmd;
 
 		CmdTmpl() = default;
 		
-		CmdTmpl(std::string_view name, const std::vector<std::string>& cmd):
+		CmdTmpl(std::string_view name, const std::vector<String>& cmd):
 			name{name},
 			cmd{cmd}
 		{}
 
 		template<std::size_t N>
-		CmdTmpl(std::string_view name, const std::array<std::string, N>& cmd):
+		CmdTmpl(std::string_view name, const std::array<String, N>& cmd):
 			name{name},
 			cmd{cmd.begin(), cmd.end()}
 		{}
@@ -881,7 +951,7 @@ inline const std::string_view C_COMPILER_NAME =
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				Cmd cmd({std::string(flags["cxx"]), "-o", exe.path(), src.path()});
+				Cmd cmd({String(flags["cxx"]), "-o", exe.path(), src.path()});
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
@@ -889,7 +959,7 @@ inline const std::string_view C_COMPILER_NAME =
 
 				// Run
 				cmd.cmd.clear();
-				cmd.cmd.push_back(exe.path());
+				cmd.cmd.emplace_back(exe.path());
 				for(const auto& [name, value]: flags){
 					if(name[0] != '~')
 						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
@@ -939,12 +1009,12 @@ inline const std::string_view C_COMPILER_NAME =
 			return ix;
 		}
 
-		inline std::size_t cmd(std::string_view name, const std::vector<std::string>& cmd){
+		inline std::size_t cmd(std::string_view name, const std::vector<String>& cmd){
 			return this->cmd(CmdTmpl{name, cmd});
 		}
 
 		template<std::size_t N>
-		inline std::size_t cmd(std::string_view name, const std::array<std::string, N>& cmd){
+		inline std::size_t cmd(std::string_view name, const std::array<String, N>& cmd){
 			return this->cmd(CmdTmpl{name, cmd});
 		}
 
