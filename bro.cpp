@@ -131,8 +131,9 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
-#if 0
 	{
+		bro.log.info("NO: {}", 7);
+
 		std::filesystem::remove_all("build");
 		bro.ninja();
 
@@ -151,7 +152,6 @@ int main(int argc, const char** argv){
 		
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
-#endif
 
 	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");

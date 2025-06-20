@@ -22,7 +22,6 @@
  * SOFTWARE.
  */
 
-// TODO: Write a function for space escaping
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
 // TODO: Mercurial and Git support
@@ -147,6 +146,27 @@ inline const std::string_view C_COMPILER_NAME =
 				s.replace(dollar, end - dollar + 1, val);
 				const auto& variants = s.resolve(dict, dollar + val.size() + 1);
 				ret.insert(ret.end(), variants.begin(), variants.end());
+			}
+
+			return ret;
+		}
+
+		std::unordered_set<std::string> variables() const {
+			std::unordered_set<std::string> ret;
+
+			std::string::size_type pos = 0;
+			while((pos = find('$', pos)) != std::string::npos){
+				if(pos + 1 >= size() || at(pos + 1) != '{'){
+					pos += 2;
+					continue;
+				}
+
+				std::string::size_type end = find('}', pos);
+				if(end == std::string::npos)
+					return ret;
+
+				ret.emplace(substr(pos + 2, end - pos - 2));
+				pos = end;
 			}
 
 			return ret;
@@ -452,6 +472,15 @@ inline const std::string_view C_COMPILER_NAME =
 			name{name},
 			cmd{cmd.begin(), cmd.end()}
 		{}
+
+		inline std::unordered_set<std::string> variables() const {
+			std::unordered_set<std::string> ret;
+
+			for(const auto& e: cmd)
+				ret.merge(e.variables());
+			
+			return ret;
+		}
 
 		inline std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict) const {
 			std::vector<String> ret;
@@ -1084,8 +1113,14 @@ inline const std::string_view C_COMPILER_NAME =
 
 		inline int ninja(std::ostream& out){
 			for(const CmdTmpl& tmpl: cmds){
+				std::unordered_set<std::string> vars = tmpl.variables();
+				std::unordered_map<std::string, std::vector<std::string>> dict;
+				for(const auto& var: vars){
+					dict[var] = {"$" + var};
+				}
+
 				out << "rule " << tmpl.name << std::endl;
-				out << "  command = " << tmpl.compile().str() << std::endl;
+				out << "  command = " << tmpl.compile(dict).str() << std::endl;
 				out << std::endl;
 			}
 
