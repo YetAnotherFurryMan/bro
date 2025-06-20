@@ -10,27 +10,11 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Header: {}", bro.header);
 
-	bro::String s = "This ${is} ${a} ${} $$String ${s}.";
-	bro.log.info("String s: {}", s);
-	
-	for(const auto& ss: s.resolve({
-		{"is", {"is", "was"}},
-		{"a", {"a", "an"}},
-		{"", {"bro", "interesting", "expensive", "lol"}},
-		{"s", {"s", "S", "!!!"}}
-	})){
-		bro.log.info("Resolve: {}", ss);
-	}
-	
-	bro.log.info("String s: {}", s);
+	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "${in}", "-o", "${out}"});
+	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "${in}", "-o", "${out}"});
+	std::size_t exe_ix = bro.cmd("exe", {"gcc", "${in}", "-o", "${out}", "${flags}", "-lstdc++"});
 
-	return 0;
-
-	std::size_t cxx_ix = bro.cmd("cxx", {"g++", "-c", "$in", "-o", "$out"});
-	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "$in", "-o", "$out"});
-	std::size_t exe_ix = bro.cmd("exe", {"gcc", "$in", "-o", "$out", "$flags", "-lstdc++"});
-
-	bro::CmdTmpl run("run", {"./$in"});
+	bro::CmdTmpl run("run", {"./${in}"});
 
 	std::filesystem::create_directories("src/mod");
 	std::filesystem::create_directories("src/common");
@@ -44,7 +28,7 @@ int main(int argc, const char** argv){
 	bro.useCmd(obj_ix, cxx_ix, ".cpp");
 	bro.useCmd(obj_ix, cc_ix, ".c");
 
-	std::size_t bin_ix = bro.link("bin", "$mod");
+	std::size_t bin_ix = bro.link("bin", "${mod}");
 	bro.useCmd(bin_ix, exe_ix, ".o");
 
 	bro.applyMod(obj_ix, mod_ix);
@@ -147,6 +131,7 @@ int main(int argc, const char** argv){
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
 
+#if 0
 	{
 		std::filesystem::remove_all("build");
 		bro.ninja();
@@ -166,6 +151,7 @@ int main(int argc, const char** argv){
 		
 		run.sync(bro.log, {{"in", {"build/bin/mod"}}});
 	}
+#endif
 
 	if(!bro.isFlagSet("save")){
 		std::filesystem::remove_all("src");
@@ -177,8 +163,7 @@ int main(int argc, const char** argv){
 
 	bro.log.info("Cmds: {}", bro.cmds.size());
 	for(const auto& [key, val_ix]: bro.cmds.dict){
-		auto cmd = bro.cmds[val_ix].compile();
-		bro.log.info("Cmd {}: {}", key, cmd.str());
+		bro.log.info("Cmd {}: {}", key, bro.cmds[val_ix]);
 	}
 	
 	return 0;

@@ -137,7 +137,7 @@ inline const std::string_view C_COMPILER_NAME =
 			const auto vals = dict.find(var);
 			if(vals == dict.end() || (*vals).second.size() == 0){
 				String s = *this;
-				s.replace(dollar, end - dollar, "");
+				s.replace(dollar, end - dollar + 1, "");
 				return s.resolve(dict, dollar);
 			}
 
@@ -453,68 +453,21 @@ inline const std::string_view C_COMPILER_NAME =
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
-		inline CmdTmpl resolve(std::string_view name, std::string_view value) const {
-			CmdTmpl ret = *this;
-
-			std::string v_name = "$";
-			v_name += name;
-
-			for(auto& e: ret.cmd){
-				auto pos = e.find(v_name);
-				while(pos != std::string::npos){
-					e.replace(pos, v_name.length(), value);
-					pos = e.find(v_name, pos + v_name.length());
-				}
+		inline std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict) const {
+			std::vector<String> ret;
+			for(const auto& e: cmd){
+				const auto& resolved = e.resolve(dict);
+				ret.insert(ret.end(), resolved.begin(), resolved.end());
 			}
-
 			return ret;
 		}
 
-		inline CmdTmpl resolve(std::string_view name, const std::vector<std::string>& values) const {
-			CmdTmpl ret;
-			ret.name = this->name;
-
-			std::string v_name = "$";
-			v_name += name;
-
-			for(const auto& e: this->cmd){
-				auto pos = e.find(v_name);
-				if(pos == std::string::npos){
-					ret.cmd.push_back(e);
-				} else{
-					for(const auto& value: values){
-						auto p = pos;
-						std::string bit = e;
-						while(p != std::string::npos){
-							bit.replace(p, v_name.length(), value);
-							p = bit.find(v_name, p + v_name.length());
-						}
-						ret.cmd.push_back(bit);
-					}
-				}
-			}
-
-			return ret;
-		}
-
-		// TODO: $name => ${name}
 		inline Cmd compile() const {
-			return Cmd(resolve("$dollar", "$").cmd);
+			return Cmd(resolve({}));
 		}
 
 		inline Cmd compile(const std::unordered_map<std::string, std::vector<std::string>>& vars) const {
-			std::vector<std::string> keys;
-			for(const auto& [key, val]: vars){
-				keys.emplace_back(key);
-			}
-			std::sort(keys.begin(), keys.end());
-			
-			CmdTmpl cmd = *this;
-			for(const auto& key: keys){
-				cmd = cmd.resolve(key, vars.at(key));
-			}
-
-			return cmd.compile();
+			return Cmd(resolve(vars));
 		}
 
 		inline int sync(Log& log) const {
@@ -714,7 +667,6 @@ inline const std::string_view C_COMPILER_NAME =
 			std::unordered_map<std::string, std::vector<std::string>> vars({
 				{"in", inputs},
 				{"out", {output}},
-				{"flags", {}} // TODO: DELETE
 			});
 
 			vars.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
@@ -841,7 +793,7 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 	
 	struct Link: public Stage{
-		std::string outtmpl;
+		String outtmpl;
 		
 		Link() = default;
 		Link(std::string_view name, std::string_view outtmpl):
@@ -851,14 +803,8 @@ inline const std::string_view C_COMPILER_NAME =
 	
 		std::vector<CmdEntry> apply(Module& mod) override {
 			CmdEntry ret;
-			ret.output = "build/" + name + "/" + outtmpl;
+			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
 			
-			std::string::size_type pos = 0;
-			while((pos = ret.output.find("$mod", pos)) != std::string::npos){
-				ret.output.replace(pos, 4, mod.name);
-				pos += mod.name.length();
-			}
-	
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
 				if(cmds.find(ext) == cmds.end())
@@ -1243,5 +1189,13 @@ inline const std::string_view C_COMPILER_NAME =
 		std::time_t tt = std::chrono::system_clock::to_time_t(time);
 		std::tm* tm = std::localtime(&tt);
 		return out << "bro::File{'exists': " << file.exists << ", 'path': " << file.path() << ", 'time': '" << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << "'}";
+	}
+
+	template<typename CharT, typename Traits>
+	inline std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& out, const CmdTmpl& tmpl){
+		out << "bro::CmdTmpl{'name': " << std::quoted(tmpl.name) << ", 'cmd': { ";
+		for(const auto& e: tmpl.cmd)
+			out << std::quoted(e) << " ";
+		return out << "}}";
 	}
 }
