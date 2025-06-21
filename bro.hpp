@@ -26,6 +26,7 @@
 // TODO: Batch size
 // TODO: Mercurial and Git support
 // TODO: Unhardcode build directory for Transform and Link (or Stage)
+// TODO: Test if bro::Link has any cmds.
 
 #pragma once
 
@@ -800,6 +801,9 @@ inline const std::string_view C_COMPILER_NAME =
 		{}
 	
 		std::vector<CmdEntry> apply(Module& mod) override {
+			if(cmds.size() <= 0)
+				return {};
+
 			std::vector<CmdEntry> ret;
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
@@ -836,6 +840,9 @@ inline const std::string_view C_COMPILER_NAME =
 		{}
 	
 		std::vector<CmdEntry> apply(Module& mod) override {
+			if(cmds.size() <= 0)
+				return {};
+
 			CmdEntry ret;
 			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
 			ret.dependences = mod.deps;
@@ -878,7 +885,6 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar"; // TODO DELETE?
 			flags["build"] = "build";
-			flags["src"] = "src"; // TODO: DELETE?
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -1000,20 +1006,13 @@ inline const std::string_view C_COMPILER_NAME =
 			return this->cmd(CmdTmpl{name, cmd});
 		}
 
-		inline std::size_t mod(std::string_view name, bool src = true){
+		inline std::size_t mod(std::string_view name){
 			std::string n{name};
 
 			if(mods.find(n) != mods.end())
 				return std::numeric_limits<std::size_t>::max();
 
 			auto [ix, ref] = mods.emplace(n, name);
-
-			if(src){
-				Directory d("src/" + std::string{name});
-				if(d.exists){
-					ref.addDirectory(d);
-				}
-			}
 
 			return ix;
 		}
