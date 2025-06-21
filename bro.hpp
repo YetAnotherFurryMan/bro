@@ -25,6 +25,7 @@
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
 // TODO: Mercurial and Git support
+// TODO: Unhardcode build directory for Transform and Link (or Stage)
 
 #pragma once
 
@@ -282,7 +283,6 @@ inline const std::string_view C_COMPILER_NAME =
 		std::filesystem::file_time_type time;
 
 		File() = default;
-		File(const File& other) = default;
 
 		File(std::filesystem::path p):
 			std::filesystem::path{p}
@@ -764,6 +764,7 @@ inline const std::string_view C_COMPILER_NAME =
 		virtual ~Stage() = default;
 	
 		virtual std::vector<CmdEntry> apply(Module& mod){
+			(void) mod;
 			return {};
 		};
 	
@@ -899,7 +900,7 @@ inline const std::string_view C_COMPILER_NAME =
 		{
 			_setup_default();
 
-			for(size_t i = 1; i < argc; i++){
+			for(int i = 1; i < argc; i++){
 				std::string_view arg = argv[i];
 				auto eq = arg.find('=');
 				if(eq != std::string_view::npos){
