@@ -27,6 +27,8 @@
 // TODO: Mercurial and Git support
 // TODO: Unhardcode build directory for Transform and Link (or Stage)
 // TODO: Test if bro::Link has any cmds.
+// TODO: Tests
+// TODO: A function that adds both flag and dependency (like -lLIB and build/STAGE/LIB)
 
 #pragma once
 
@@ -764,8 +766,9 @@ inline const std::string_view C_COMPILER_NAME =
 	
 		virtual ~Stage() = default;
 	
-		virtual std::vector<CmdEntry> apply(Module& mod){
+		virtual std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}){
 			(void) mod;
+			(void) flags;
 			return {};
 		};
 	
@@ -800,7 +803,7 @@ inline const std::string_view C_COMPILER_NAME =
 			outext{outext}
 		{}
 	
-		std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}) override {
 			if(cmds.size() <= 0)
 				return {};
 
@@ -816,10 +819,13 @@ inline const std::string_view C_COMPILER_NAME =
 					out = out.substr(out.find('/')); // Cut $mod_name/
 				}
 				out = "build/" + name + "/" + mod.name + "/" + out + outext;
+
+				std::unordered_map<std::string, std::vector<std::string>> flgs = flags;
+				flgs.merge(std::unordered_map<std::string, std::vector<std::string>>{
+					{"mod", {mod.name}
+				}});
 	
-				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], std::unordered_map<std::string, std::vector<std::string>>{
-						{"mod", {mod.name}}
-					});
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], flgs);
 			}
 	
 			for(const auto& entry: ret){
@@ -839,7 +845,7 @@ inline const std::string_view C_COMPILER_NAME =
 			outtmpl{outtmpl}
 		{}
 	
-		std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}) override {
 			if(cmds.size() <= 0)
 				return {};
 
@@ -859,6 +865,7 @@ inline const std::string_view C_COMPILER_NAME =
 				{"mod", {mod.name}},
 				{"flags", mod.flags}
 			};
+			ret.flags.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
 
 			mod.files.emplace_back(ret.output);
 	
@@ -866,6 +873,8 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	// TODO: Implement something special instead of std::unordered_map<std::string, std::vector<std::string>> so we may take lists from cli args
+	// TODO: Use extract and insert(std::move) with maps, so reallocation do not happen
 	struct Bro{
 		Log log;
 		File header;
@@ -907,14 +916,14 @@ inline const std::string_view C_COMPILER_NAME =
 			_setup_default();
 
 			for(int i = 1; i < argc; i++){
-				std::string_view arg = argv[i];
+				std::string arg = argv[i];
 				auto eq = arg.find('=');
 				if(eq != std::string_view::npos){
-					std::string_view name = arg.substr(0, eq);
-					std::string_view value = arg.substr(eq + 1);
+					std::string name = arg.substr(0, eq);
+					std::string value = arg.substr(eq + 1);
 					flags[name] = value;
 				} else if(arg[0] == '-'){
-					std::string_view name = arg.substr(1, -1);
+					std::string name = arg.substr(1, -1);
 					flags[name] = "no";
 				} else {
 					flags[arg] = "yes";
@@ -1033,6 +1042,11 @@ inline const std::string_view C_COMPILER_NAME =
 			mods[ix].flags.emplace_back(flag);
 		}
 
+		template<typename Ix>
+		inline void addDep(Ix ix, std::string_view dep){
+			mods[ix].deps.emplace_back(dep);
+		}
+
 		template<typename T>
 		inline typename std::enable_if<std::is_base_of<Stage, T>::value, std::size_t>::type
 		stage(std::string_view name, std::unique_ptr<T> stage){
@@ -1087,13 +1101,18 @@ inline const std::string_view C_COMPILER_NAME =
 
 			int ret = 0;
 
+			std::unordered_map<std::string, std::vector<std::string>> flgs;
+			for(auto [k, v]: flags){
+				flgs[std::string{k}] = {std::string{v}};
+			}
+
 			std::vector<Module> mods = this->mods;
 
 			CmdPool pool;
 			for(const auto& stage: stages){
 				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
 					Module& mod = mods[mod_ix];
-					if(!mod.disabled) for(auto& cmd: stage->apply(mod)){
+					if(!mod.disabled) for(auto& cmd: stage->apply(mod, flgs)){
 						cmd.smart = true;
 						pool.push(cmd);
 					}
