@@ -884,7 +884,7 @@ inline const std::string_view C_COMPILER_NAME =
 		Dictionary<std::string, Module> mods;
 		Dictionary<std::string, std::unique_ptr<Stage>> stages;
 		std::unordered_map<std::size_t, std::unordered_set<std::size_t>> mods4stage;
-		std::unordered_map<std::string_view, std::string_view> flags;
+		std::unordered_map<std::string, std::string> flags;
 
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
@@ -971,19 +971,19 @@ inline const std::string_view C_COMPILER_NAME =
 			}
 		}
 
-		inline bool hasFlag(std::string_view name){
+		inline bool hasFlag(const std::string& name){
 			return flags.find(name) != flags.end();
 		}
 
 		// TODO: What about ~ variant
-		inline std::string getFlag(std::string_view name, std::string_view dflt = ""){
+		inline std::string getFlag(const std::string& name, std::string_view dflt = ""){
 			if(!hasFlag(name))
 				return std::string(dflt);
 			
 			return std::string(flags[name]);
 		}
 
-		inline bool setFlag(std::string_view name, std::string_view value = "yes", bool force = true){
+		inline bool setFlag(const std::string& name, std::string_view value = "yes", bool force = true){
 			if(!force && hasFlag(name))
 				return false;
 
@@ -991,7 +991,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return true;
 		}
 
-		inline bool isFlagSet(std::string_view name, bool dflt = false){
+		inline bool isFlagSet(const std::string& name, bool dflt = false){
 			if(!hasFlag(name))
 				return dflt;
 
@@ -1146,10 +1146,7 @@ inline const std::string_view C_COMPILER_NAME =
 				// TODO: Add removing to API with Log
 				std::filesystem::remove_all(getFlag("build"));
 
-			if(isFlagSet("build", true))
-				return build();
-
-			return 0;
+			return build();
 		}
 
 		inline int ninja(std::ostream& out){
