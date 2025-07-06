@@ -21,7 +21,7 @@ int main(int argc, const char** argv){
 	std::filesystem::create_directories("common");
 	bro::Directory mod("src/mod");
 
-	std::size_t mod_ix = bro.mod("mod", false);
+	std::size_t mod_ix = bro.mod("mod");
 	bro.addFlag("mod", "-lstdc++");
 
 	std::size_t obj_ix = bro.transform("obj", ".o");

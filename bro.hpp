@@ -25,8 +25,20 @@
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
 // TODO: Mercurial and Git support
+// TODO: Unhardcode build directory for Transform and Link (or Stage)
+// TODO: Test if bro::Link has any cmds.
+// TODO: Tests
+// TODO: A function that adds both flag and dependency (like -lLIB and build/STAGE/LIB)
+// TODO: enable(FLGName) and cmd variants
+// TODO: bro [.modx .cmdx .statex]
+// TODO: Resolving depth in String
 
 #pragma once
+
+// Major version macro
+#ifndef BRO_VERSION_MAJOR
+#define BRO_VERSION_MAJOR 2
+#endif
 
 #include <array>
 #include <vector>
@@ -43,6 +55,8 @@
 #include <unordered_map>
 
 namespace bro{
+
+inline const std::string_view VERSION = "2.0";
 
 // Detect C++ compiler name
 inline const std::string_view CXX_COMPILER_NAME = 
@@ -282,7 +296,6 @@ inline const std::string_view C_COMPILER_NAME =
 		std::filesystem::file_time_type time;
 
 		File() = default;
-		File(const File& other) = default;
 
 		File(std::filesystem::path p):
 			std::filesystem::path{p}
@@ -763,7 +776,9 @@ inline const std::string_view C_COMPILER_NAME =
 	
 		virtual ~Stage() = default;
 	
-		virtual std::vector<CmdEntry> apply(Module& mod){
+		virtual std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}){
+			(void) mod;
+			(void) flags;
 			return {};
 		};
 	
@@ -798,7 +813,10 @@ inline const std::string_view C_COMPILER_NAME =
 			outext{outext}
 		{}
 	
-		std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}) override {
+			if(cmds.size() <= 0)
+				return {};
+
 			std::vector<CmdEntry> ret;
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
@@ -811,10 +829,13 @@ inline const std::string_view C_COMPILER_NAME =
 					out = out.substr(out.find('/')); // Cut $mod_name/
 				}
 				out = "build/" + name + "/" + mod.name + "/" + out + outext;
+
+				std::unordered_map<std::string, std::vector<std::string>> flgs = flags;
+				flgs.merge(std::unordered_map<std::string, std::vector<std::string>>{
+					{"mod", {mod.name}
+				}});
 	
-				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], std::unordered_map<std::string, std::vector<std::string>>{
-						{"mod", {mod.name}}
-					});
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], flgs);
 			}
 	
 			for(const auto& entry: ret){
@@ -834,7 +855,10 @@ inline const std::string_view C_COMPILER_NAME =
 			outtmpl{outtmpl}
 		{}
 	
-		std::vector<CmdEntry> apply(Module& mod) override {
+		std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}) override {
+			if(cmds.size() <= 0)
+				return {};
+
 			CmdEntry ret;
 			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
 			ret.dependences = mod.deps;
@@ -851,6 +875,7 @@ inline const std::string_view C_COMPILER_NAME =
 				{"mod", {mod.name}},
 				{"flags", mod.flags}
 			};
+			ret.flags.merge(std::unordered_map<std::string, std::vector<std::string>>(flags));
 
 			mod.files.emplace_back(ret.output);
 	
@@ -858,6 +883,8 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	// TODO: Implement something special instead of std::unordered_map<std::string, std::vector<std::string>> so we may take lists from cli args
+	// TODO: Use extract and insert(std::move) with maps, so reallocation do not happen
 	struct Bro{
 		Log log;
 		File header;
@@ -867,7 +894,7 @@ inline const std::string_view C_COMPILER_NAME =
 		Dictionary<std::string, Module> mods;
 		Dictionary<std::string, std::unique_ptr<Stage>> stages;
 		std::unordered_map<std::size_t, std::unordered_set<std::size_t>> mods4stage;
-		std::unordered_map<std::string_view, std::string_view> flags;
+		std::unordered_map<std::string, std::string> flags;
 
 		inline void _setup_default(){
 			std::string header_path = __FILE__;
@@ -877,7 +904,6 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar"; // TODO DELETE?
 			flags["build"] = "build";
-			flags["src"] = "src"; // TODO: DELETE?
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -899,15 +925,15 @@ inline const std::string_view C_COMPILER_NAME =
 		{
 			_setup_default();
 
-			for(size_t i = 1; i < argc; i++){
-				std::string_view arg = argv[i];
+			for(int i = 1; i < argc; i++){
+				std::string arg = argv[i];
 				auto eq = arg.find('=');
 				if(eq != std::string_view::npos){
-					std::string_view name = arg.substr(0, eq);
-					std::string_view value = arg.substr(eq + 1);
+					std::string name = arg.substr(0, eq);
+					std::string value = arg.substr(eq + 1);
 					flags[name] = value;
 				} else if(arg[0] == '-'){
-					std::string_view name = arg.substr(1, -1);
+					std::string name = arg.substr(1, -1);
 					flags[name] = "no";
 				} else {
 					flags[arg] = "yes";
@@ -955,19 +981,19 @@ inline const std::string_view C_COMPILER_NAME =
 			}
 		}
 
-		inline bool hasFlag(std::string_view name){
+		inline bool hasFlag(const std::string& name){
 			return flags.find(name) != flags.end();
 		}
 
 		// TODO: What about ~ variant
-		inline std::string getFlag(std::string_view name, std::string_view dflt = ""){
+		inline std::string getFlag(const std::string& name, std::string_view dflt = ""){
 			if(!hasFlag(name))
 				return std::string(dflt);
 			
 			return std::string(flags[name]);
 		}
 
-		inline bool setFlag(std::string_view name, std::string_view value = "yes", bool force = true){
+		inline bool setFlag(const std::string& name, std::string_view value = "yes", bool force = true){
 			if(!force && hasFlag(name))
 				return false;
 
@@ -975,7 +1001,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return true;
 		}
 
-		inline bool isFlagSet(std::string_view name, bool dflt = false){
+		inline bool isFlagSet(const std::string& name, bool dflt = false){
 			if(!hasFlag(name))
 				return dflt;
 
@@ -999,20 +1025,13 @@ inline const std::string_view C_COMPILER_NAME =
 			return this->cmd(CmdTmpl{name, cmd});
 		}
 
-		inline std::size_t mod(std::string_view name, bool src = true){
+		inline std::size_t mod(std::string_view name){
 			std::string n{name};
 
 			if(mods.find(n) != mods.end())
 				return std::numeric_limits<std::size_t>::max();
 
 			auto [ix, ref] = mods.emplace(n, name);
-
-			if(src){
-				Directory d("src/" + std::string{name});
-				if(d.exists){
-					ref.addDirectory(d);
-				}
-			}
 
 			return ix;
 		}
@@ -1031,6 +1050,11 @@ inline const std::string_view C_COMPILER_NAME =
 		template<typename Ix>
 		inline void addFlag(Ix ix, std::string_view flag){
 			mods[ix].flags.emplace_back(flag);
+		}
+
+		template<typename Ix>
+		inline void addDep(Ix ix, std::string_view dep){
+			mods[ix].deps.emplace_back(dep);
 		}
 
 		template<typename T>
@@ -1087,13 +1111,18 @@ inline const std::string_view C_COMPILER_NAME =
 
 			int ret = 0;
 
+			std::unordered_map<std::string, std::vector<std::string>> flgs;
+			for(auto [k, v]: flags){
+				flgs[std::string{k}] = {std::string{v}};
+			}
+
 			std::vector<Module> mods = this->mods;
 
 			CmdPool pool;
 			for(const auto& stage: stages){
 				for(std::size_t mod_ix: mods4stage[stages.dict[stage->name]]){
 					Module& mod = mods[mod_ix];
-					if(!mod.disabled) for(auto& cmd: stage->apply(mod)){
+					if(!mod.disabled) for(auto& cmd: stage->apply(mod, flgs)){
 						cmd.smart = true;
 						pool.push(cmd);
 					}
@@ -1127,10 +1156,7 @@ inline const std::string_view C_COMPILER_NAME =
 				// TODO: Add removing to API with Log
 				std::filesystem::remove_all(getFlag("build"));
 
-			if(isFlagSet("build", true))
-				return build();
-
-			return 0;
+			return build();
 		}
 
 		inline int ninja(std::ostream& out){
