@@ -29,8 +29,16 @@
 // TODO: Test if bro::Link has any cmds.
 // TODO: Tests
 // TODO: A function that adds both flag and dependency (like -lLIB and build/STAGE/LIB)
+// TODO: enable(FLGName) and cmd variants
+// TODO: bro [.modx .cmdx .statex]
+// TODO: Resolving depth in String
 
 #pragma once
+
+// Major version macro
+#ifndef BRO_VERSION_MAJOR
+#define BRO_VERSION_MAJOR 2
+#endif
 
 #include <array>
 #include <vector>
@@ -47,6 +55,8 @@
 #include <unordered_map>
 
 namespace bro{
+
+inline const std::string_view VERSION = "2.0";
 
 // Detect C++ compiler name
 inline const std::string_view CXX_COMPILER_NAME = 
