@@ -32,6 +32,7 @@
 // TODO: enable(FLGName) and cmd variants
 // TODO: bro [.modx .cmdx .statex]
 // TODO: Resolving depth in String
+// TODO: Breach
 
 #pragma once
 
@@ -80,8 +81,9 @@ inline const std::string_view C_COMPILER_NAME =
 #endif
 ;
 
-	// TODO: Check C++ wersion, if 20 replace with official implementation
 	inline bool starts_with(const std::string& a, std::string_view b){
+		// If C++20 or later use standard starts_with function 
+#if __cplusplus < 202002L
 		if(a.length() < b.length())
 			return false;
 	
@@ -90,8 +92,14 @@ inline const std::string_view C_COMPILER_NAME =
 				return false;
 	
 		return true;
+#else
+		return a.starts_with(b);
+#endif
 	}
 
+	/*
+	 * Helper std::string wrapper that includes escaping and ${template} resolving
+	 */
 	struct String: public std::string {
 		String() = default;
 		
@@ -165,6 +173,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return ret;
 		}
 
+		// Returns a set of ${template} variables used in the String
 		std::unordered_set<std::string> variables() const {
 			std::unordered_set<std::string> ret;
 
@@ -187,6 +196,10 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Helper std::unordered_map wrapper that uses linear storage (std::vector).
+	 * It allows to access the data by both key and index.
+	 */
 	template <typename K, typename V>
 	struct Dictionary: public std::vector<V>{
 		std::unordered_map<K, std::size_t> dict;
@@ -206,6 +219,7 @@ inline const std::string_view C_COMPILER_NAME =
 			return std::vector<V>::operator[](ix);
 		}
 
+		// Create a key alias for an index
 		inline bool alias(const K& ix1, std::size_t ix2){
 			if(ix2 >= std::vector<V>::size())
 				return true;
@@ -244,6 +258,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Helper struct used for logging.
+	 */
 	struct Log{
 		inline void format(std::ostream& out, std::string_view fmt){
 			out << fmt;
@@ -291,6 +308,11 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Hepler std::filesystem::path wrapper that stores info about the given path.
+	 * It stores if the path exists and if so, what is its last wirite time.
+	 * Provides funcionality for basic file operations like copy and move.
+	 */
 	struct File: public std::filesystem::path{
 		bool exists = false;
 		std::filesystem::file_time_type time;
@@ -356,6 +378,11 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Wrapper for File made for directories.
+	 * Provides functionality for copying the directory tree and listing files.
+	 * The existence of the directory can be ensured by make function.
+	 */
 	struct Directory: public File{
 		Directory() = default;
 		Directory(std::filesystem::path p): File{p} {}
@@ -416,12 +443,18 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * An abstraction for anything that you can run.
+	 */
 	struct Runnable{
 		inline virtual int sync(Log& log) const = 0;
 		inline virtual std::future<int> async(Log& log) const = 0;
 		virtual ~Runnable() = default;
 	};
 
+	/*
+	 * Low-level command calling abstraction layer.
+	 */
 	struct Cmd: public Runnable{
 		std::vector<String> cmd;
 		
@@ -436,6 +469,7 @@ inline const std::string_view C_COMPILER_NAME =
 			cmd{cmd.begin(), cmd.end()}
 		{}
 
+		// Returns escaped and concatinated command.
 		inline String str() const {
 			std::stringstream ss;
 			for(const auto& e: cmd)
@@ -469,6 +503,10 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Command template abstraction.
+	 * Provides Runnable functionality, but with different parameters.
+	 */
 	struct CmdTmpl{
 		std::string name;
 		std::vector<String> cmd;
@@ -529,6 +567,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Helper struct for CmdPool.
+	 */
 	struct CmdPoolAsync: public std::vector<std::future<int>> {
 		inline int wait(){
 			int ret = 0;
@@ -539,6 +580,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * An abstraction layer for running commands in parallel.
+	 */
 	struct CmdPool: public std::vector<std::unique_ptr<Runnable>> {
 		inline int sync(Log& log) const {
 			int ret = 0;
@@ -563,6 +607,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * An abstraction layer for running Runnables in a queue (one after another).
+	 */
 	struct CmdQueue: public std::vector<std::unique_ptr<Runnable>>, public Runnable {
 		inline int sync(Log& log) const override {
 			int ret = 0;
@@ -585,6 +632,12 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * Not-yet-resolved CmdTmpl.
+	 * Stores all data needed to resolve a command template (and the template itself).
+	 * It is used as an universal abstraction of a command for Ninja and Makefile generation.
+	 * (It by itself provides generation of fragments of Ninja and Makefile)
+	 */
 	struct CmdEntry: public Runnable{
 		CmdTmpl cmd;
 		std::string output;
@@ -724,6 +777,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 
+	/*
+	 * A high-level abstraction that stores information about a module.
+	 */
 	struct Module{
 		std::string name;
 		std::vector<File> files;
@@ -765,6 +821,9 @@ inline const std::string_view C_COMPILER_NAME =
 	};
 
 	// TODO: Introduce * extension (for all) and maybe some pattern matching (.c*, etc.)
+	/*
+	 * A high-level abstraction for appling command templates on modules.
+	 */
 	struct Stage{
 		std::string name;
 		Dictionary<std::string, CmdTmpl> cmds;
@@ -804,6 +863,10 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 	
+	/*
+	 * A stage that transforms files with given extensions to (the same amount of) files with other given extension.
+	 * F.e. *.c => *.c.o and *.cpp => *.cpp.o
+	 */
 	struct Transform: public Stage{
 		std::string outext;
 	
@@ -846,6 +909,9 @@ inline const std::string_view C_COMPILER_NAME =
 		}
 	};
 	
+	/*
+	 * A stage thats links files with given extensions to one file named by resloving output template (outtmpl).
+	 */
 	struct Link: public Stage{
 		String outtmpl;
 		
@@ -885,6 +951,10 @@ inline const std::string_view C_COMPILER_NAME =
 
 	// TODO: Implement something special instead of std::unordered_map<std::string, std::vector<std::string>> so we may take lists from cli args
 	// TODO: Use extract and insert(std::move) with maps, so reallocation do not happen
+	/*
+	 * The highest-level abstraction layer that combined everything together.
+	 * It also implements CLI flags.
+	 */
 	struct Bro{
 		Log log;
 		File header;
@@ -1265,6 +1335,8 @@ inline const std::string_view C_COMPILER_NAME =
 			return ret;
 		}
 	};
+
+	// Pipe operator overloads for commonly printed structs.
 
 	template<typename CharT, typename Traits>
 	inline std::basic_ostream<CharT, Traits>& operator<<(std::basic_ostream<CharT, Traits>& out, const File& file){
