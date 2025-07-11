@@ -25,11 +25,9 @@
 // TODO: Write an insert function for Dictionary and for stage API
 // TODO: Batch size
 // TODO: Mercurial and Git support
-// TODO: Unhardcode build directory for Transform and Link (or Stage)
 // TODO: Test if bro::Link has any cmds.
 // TODO: Tests
 // TODO: enable(FLGName) and cmd variants
-// TODO: Resolving depth in String
 // TODO: Bridge
 
 #pragma once
@@ -146,8 +144,8 @@ inline const std::string_view CXX_STD_FLAG =
 			return *this;
 		}
 
-		std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict, std::string::size_type pos = 0) const {
-			if(pos >= size())
+		std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict, std::size_t depth = 1, std::string::size_type pos = 0) const {
+			if(pos >= size() || !depth)
 				return {*this};
 
 			std::string::size_type dollar = find('$', pos);
@@ -182,8 +180,20 @@ inline const std::string_view CXX_STD_FLAG =
 			for(const auto& val: (*vals).second){
 				String s = *this;
 				s.replace(dollar, end - dollar + 1, val);
-				const auto& variants = s.resolve(dict, dollar + val.size() + 1);
+				const auto& variants = s.resolve(dict, depth, dollar + val.size() + 1);
 				ret.insert(ret.end(), variants.begin(), variants.end());
+			}
+
+			if(depth > 1){
+				depth--;
+
+				std::vector<String> ret2;
+				for(const auto& s: ret){
+					const auto& variants = s.resolve(dict, depth);
+					ret2.insert(ret.end(), variants.begin(), variants.end());
+				}
+
+				return ret2;
 			}
 
 			return ret;
@@ -717,10 +727,10 @@ namespace bro{
 			return ret;
 		}
 
-		inline std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict) const {
+		inline std::vector<String> resolve(const std::unordered_map<std::string, std::vector<std::string>> dict, std::size_t depth = 1) const {
 			std::vector<String> ret;
 			for(const auto& e: cmd){
-				const auto& resolved = e.resolve(dict);
+				const auto& resolved = e.resolve(dict, depth);
 				ret.insert(ret.end(), resolved.begin(), resolved.end());
 			}
 			return ret;
@@ -1008,11 +1018,13 @@ namespace bro{
 	 * A high-level abstraction for appling command templates on modules.
 	 */
 	struct Stage{
+		std::string build = "build";
 		std::string name;
 		MatchDictionary<CmdTmpl> cmds;
 	
 		Stage() = default;
-		Stage(std::string_view name):
+		Stage(std::string_view name, std::string_view build):
+			build{build},
 			name{name}
 		{}
 	
@@ -1049,8 +1061,8 @@ namespace bro{
 		std::string outext;
 	
 		Transform() = default;
-		Transform(std::string_view name, std::string_view outext):
-			Stage{name},
+		Transform(std::string_view name, std::string_view build, std::string_view outext):
+			Stage{name, build},
 			outext{outext}
 		{}
 	
@@ -1065,11 +1077,11 @@ namespace bro{
 					continue;
 	
 				std::string out = file.string();
-				if(bro::starts_with(out, "build/")){
+				if(bro::starts_with(out, Stage::build + "/")){
 					out = out.substr(out.find('/', 6)); // Cut build/$stage_name/
 					out = out.substr(out.find('/')); // Cut $mod_name/
 				}
-				out = "build/" + name + "/" + mod.name + "/" + out + outext;
+				out = Stage::build + "/" + name + "/" + mod.name + "/" + out + outext;
 
 				std::unordered_map<std::string, std::vector<std::string>> flgs = flags;
 				flgs.merge(std::unordered_map<std::string, std::vector<std::string>>{
@@ -1094,8 +1106,8 @@ namespace bro{
 		String outtmpl;
 		
 		Link() = default;
-		Link(std::string_view name, std::string_view outtmpl):
-			Stage{name},
+		Link(std::string_view name, std::string_view build, std::string_view outtmpl):
+			Stage{name, build},
 			outtmpl{outtmpl}
 		{}
 	
@@ -1104,7 +1116,7 @@ namespace bro{
 				return {};
 
 			CmdEntry ret;
-			ret.output = "build/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
+			ret.output = Stage::build + "/" + name + "/" + outtmpl.resolve({{"mod", {mod.name}}})[0];
 			ret.dependences = mod.deps;
 			
 			for(const auto& file: mod.files){
@@ -1352,11 +1364,11 @@ namespace bro{
 		}
 
 		inline std::size_t transform(std::string_view name, std::string_view outext){
-			return stage(name, Transform{name, outext});
+			return stage(name, Transform{name, getFlag("build", "build"), outext});
 		}
 
 		inline std::size_t link(std::string_view name, std::string_view outtmpl){
-			return stage(name, Link{name, outtmpl});
+			return stage(name, Link{name, getFlag("build", "build"), outtmpl});
 		}
 
 		inline bool useCmd(std::size_t stage, std::size_t cmd, std::string_view ext){
