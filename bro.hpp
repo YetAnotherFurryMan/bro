@@ -40,6 +40,7 @@
 #endif
 
 #include <array>
+#include <regex>
 #include <vector>
 #include <future>
 #include <limits>
@@ -212,6 +213,136 @@ inline const std::string_view CXX_STD_FLAG =
 	};
 
 	/*
+	 * Matcher helper chooses between using regex, simpe * notation and equality matching.
+	 * To use regex the string must be in format '/'[regexp]'/'[flags], where flags may be:
+	 *  'i' - case insensitive
+	 *  'n' - non-marking sub-expressions
+	 *  'o' - optimize
+	 *  'c' - collate
+	 *  'm' - multiline
+	 */
+	struct Match: public std::string {
+		enum class Matcher{ REGEXP, STAR, LITERAL, EMPTY };
+		
+		std::regex re;
+		Matcher matcher = Matcher::EMPTY;
+
+		Match() = default;
+
+		inline void _create(){
+			if(empty()) return;
+
+			if(std::string::front() == '/'){
+				std::string::size_type pos = std::string::find_last_of('/');
+				if(pos != 0){
+					matcher = Matcher::REGEXP;
+					std::regex::flag_type flag = std::regex_constants::ECMAScript;
+					
+					// Case
+					if(std::string::find('i', pos) != std::string::npos)
+						flag |= std::regex_constants::icase;
+
+					// Non-marging sub-expressions
+					if(std::string::find('n', pos) != std::string::npos)
+						flag |= std::regex_constants::nosubs;
+
+					// Optimize
+					if(std::string::find('o', pos) != std::string::npos)
+						flag |= std::regex_constants::optimize;
+
+					// Collate
+					if(std::string::find('c', pos) != std::string::npos)
+						flag |= std::regex_constants::collate;
+
+					// Multiline
+					if(std::string::find('m', pos) != std::string::npos)
+						flag |= std::regex_constants::multiline;
+
+					std::cerr << std::string::substr(1, pos) << std::endl;
+					re = std::regex(std::string::substr(1, pos), flag);
+					
+					return;
+				}
+			}
+
+			if(std::string::find('*') != std::string::npos)
+				matcher = Matcher::STAR;
+			else
+				matcher = Matcher::LITERAL;
+		}
+	
+		Match(std::string_view str):
+			std::string{str}
+		{
+			_create();
+		}
+
+		Match(const std::string& str):
+			std::string{str}
+		{
+			_create();
+		}
+
+		Match(const char* str):
+			std::string{str}
+		{
+			_create();
+		}
+
+		Match(const std::filesystem::path str):
+			std::string{str}
+		{
+			_create();
+		}
+
+		inline bool matches(std::string_view s) const {
+			switch(matcher){
+				case Matcher::EMPTY:
+					return false;
+				case Matcher::LITERAL:
+					return s == (std::string)(*this);
+				case Matcher::REGEXP:
+				{
+					std::match_results<std::string_view::const_iterator> m;
+					return std::regex_match(s.cbegin(), s.cend(), m, re);
+				}
+				case Matcher::STAR:
+				{
+					std::size_t a = 0, b = 0;
+					while(a < std::string::length() && b < s.length()){
+						if(std::string::at(a) == '*'){
+							if(++a >= std::string::length())
+								return true;
+							
+							while(b < s.length() && std::string::at(a) != s[b])
+								b++;
+						} else if(std::string::at(a) != s[b]){
+							return false;
+						}
+
+						a++;
+						b++;
+					}
+
+					return a >= std::string::length();
+				}
+			}
+		}
+	};
+}
+
+namespace std{
+	template<>
+	struct hash<bro::Match> {
+	    std::size_t operator()(const bro::Match& m) const noexcept {
+			return std::hash<std::string>()(m);
+	    }
+	};
+}
+
+namespace bro{
+
+	/*
 	 * Helper std::unordered_map wrapper that uses linear storage (std::vector).
 	 * It allows to access the data by both key and index.
 	 */
@@ -224,14 +355,14 @@ inline const std::string_view CXX_STD_FLAG =
 				std::size_t i = std::vector<V>::size();
 				std::vector<V>::emplace_back();
 				dict[ix] = i;
-				return std::vector<V>::operator[](i);
+				return std::vector<V>::at(i);
 			}
 
-			return std::vector<V>::operator[](dict[ix]);
+			return std::vector<V>::at(dict[ix]);
 		}
 
 		inline V& operator[](const std::size_t ix){
-			return std::vector<V>::operator[](ix);
+			return std::vector<V>::at(ix);
 		}
 
 		// Create a key alias for an index
@@ -262,7 +393,7 @@ inline const std::string_view CXX_STD_FLAG =
 		inline std::pair<std::size_t, V&> emplace(const K& ix, Args&&... args){
 			if(dict.find(ix) != dict.end()){
 				std::size_t i = dict[ix];
-				V& ref = (std::vector<V>::operator[](i) = V(std::forward<Args>(args)...));
+				V& ref = (std::vector<V>::at(i) = V(std::forward<Args>(args)...));
 				return std::pair<std::size_t, V&>(i, ref);
 			}
 
@@ -270,6 +401,44 @@ inline const std::string_view CXX_STD_FLAG =
 			V& ref = std::vector<V>::emplace_back(std::forward<Args>(args)...);
 			dict[ix] = i;
 			return std::pair<std::size_t, V&>(i, ref);
+		}
+	};
+
+	/*
+	 * Special implementation of Dictionary for Match as a key
+	 */
+	template<typename T>
+	struct MatchDictionary: public Dictionary<Match, T>{
+		inline T& operator[](const Match& ix){
+			if(Dictionary<Match, T>::dict.find(ix) == Dictionary<Match, T>::dict.end()){
+				std::size_t i = std::vector<T>::size();
+				std::vector<T>::emplace_back();
+				Dictionary<Match, T>::dict[ix] = i;
+				return std::vector<T>::at(i);
+			}
+
+			return std::vector<T>::at(Dictionary<Match, T>::dict[ix]);
+		}
+
+		inline T& operator[](const std::size_t ix){
+			return std::vector<T>::operator[](ix);
+		}
+
+		inline typename std::vector<T>::iterator find(const Match& ix){
+			if(Dictionary<Match, T>::dict.find(ix) == Dictionary<Match, T>::dict.end())
+				return std::vector<T>::end();
+
+			return std::vector<T>::begin() + Dictionary<Match, T>::dict[ix];
+		}
+
+		inline typename std::vector<T>::iterator match(std::string_view s){
+			for(const auto& [k, ix]: Dictionary<Match, T>::dict){
+				if(k.matches(s)){
+					return std::vector<T>::begin() + ix;
+				}
+			}
+			
+			return std::vector<T>::end();
 		}
 	};
 
@@ -835,13 +1004,12 @@ inline const std::string_view CXX_STD_FLAG =
 		}
 	};
 
-	// TODO: Introduce * extension (for all) and maybe some pattern matching (.c*, etc.)
 	/*
 	 * A high-level abstraction for appling command templates on modules.
 	 */
 	struct Stage{
 		std::string name;
-		Dictionary<std::string, CmdTmpl> cmds;
+		MatchDictionary<CmdTmpl> cmds;
 	
 		Stage() = default;
 		Stage(std::string_view name):
@@ -849,12 +1017,7 @@ inline const std::string_view CXX_STD_FLAG =
 		{}
 	
 		virtual ~Stage() = default;
-	
-		virtual std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}){
-			(void) mod;
-			(void) flags;
-			return {};
-		};
+		virtual std::vector<CmdEntry> apply(Module& mod, const std::unordered_map<std::string, std::vector<std::string>>& flags = {}) = 0;
 	
 		template<std::size_t N>
 		inline bool add(const std::array<std::string, N>& exts, const CmdTmpl& cmd){
@@ -862,7 +1025,7 @@ inline const std::string_view CXX_STD_FLAG =
 				return true;
 
 			for(std::size_t i = 0; i < N; i++){
-				if(cmds.find(exts[i]) != cmds.end())
+				if(cmds.match(exts[i]) != cmds.end())
 					return true;
 			}
 
@@ -898,7 +1061,7 @@ inline const std::string_view CXX_STD_FLAG =
 			std::vector<CmdEntry> ret;
 			for(const auto& file: mod.files){
 				std::string ext = file.extension();
-				if(cmds.find(ext) == cmds.end())
+				if(cmds.match(ext) == cmds.end())
 					continue;
 	
 				std::string out = file.string();
@@ -913,7 +1076,7 @@ inline const std::string_view CXX_STD_FLAG =
 					{"mod", {mod.name}
 				}});
 	
-				ret.emplace_back(out, std::vector<std::string>{file.string()}, cmds[ext], flgs);
+				ret.emplace_back(out, std::vector<std::string>{file.string()}, *cmds.match(ext), flgs);
 			}
 	
 			for(const auto& entry: ret){
@@ -1389,3 +1552,5 @@ inline const std::string_view CXX_STD_FLAG =
 		return out << "}}";
 	}
 }
+
+
