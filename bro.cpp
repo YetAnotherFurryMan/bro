@@ -1,5 +1,7 @@
 #include "bro.hpp"
 
+#include <cassert>
+
 int main(int argc, const char** argv){
 	bro::Bro bro(argc, argv);
 	
@@ -14,6 +16,10 @@ int main(int argc, const char** argv){
 	std::size_t cc_ix = bro.cmd("cc", {"gcc", "-c", "${in}", "-o", "${out}"});
 	std::size_t exe_ix = bro.cmd("exe", {"gcc", "${in}", "-o", "${out}", "${flags}"});
 
+	assert(cxx_ix == bro.cmdx("cxx"));
+	assert(cc_ix == bro.cmdx("cc"));
+	assert(exe_ix == bro.cmdx("exe"));
+
 	bro::CmdTmpl run("run", {"./${in}"});
 
 	std::filesystem::create_directories("src/mod");
@@ -21,18 +27,20 @@ int main(int argc, const char** argv){
 	std::filesystem::create_directories("common");
 	bro::Directory mod("src/mod");
 
-	std::size_t mod_ix = bro.mod("mod");
-	bro.addFlag("mod", "-lstdc++");
-
 	std::size_t obj_ix = bro.transform("obj", ".o");
 	bro.useCmd(obj_ix, cxx_ix, ".cpp");
 	bro.useCmd(obj_ix, cc_ix, ".c");
+	assert(obj_ix == bro.stagex("obj"));
 
 	std::size_t bin_ix = bro.link("bin", "${mod}");
 	bro.useCmd(bin_ix, exe_ix, ".o");
+	assert(bin_ix == bro.stagex("bin"));
 
+	std::size_t mod_ix = bro.mod("mod");
+	bro.addFlag("mod", "-lstdc++");
 	bro.applyMod(obj_ix, mod_ix);
 	bro.applyMod(bin_ix, mod_ix);
+	assert(mod_ix == bro.modx("mod"));
 
 	{
 		bro.log.info("NO: {}", 1);

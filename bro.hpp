@@ -28,11 +28,9 @@
 // TODO: Unhardcode build directory for Transform and Link (or Stage)
 // TODO: Test if bro::Link has any cmds.
 // TODO: Tests
-// TODO: A function that adds both flag and dependency (like -lLIB and build/STAGE/LIB)
 // TODO: enable(FLGName) and cmd variants
-// TODO: bro [.modx .cmdx .statex]
 // TODO: Resolving depth in String
-// TODO: Breach
+// TODO: Bridge
 
 #pragma once
 
@@ -1114,6 +1112,10 @@ inline const std::string_view CXX_STD_FLAG =
 			return this->cmd(CmdTmpl{name, cmd});
 		}
 
+		inline std::size_t cmdx(const std::string& name){
+			return cmds.dict[name];
+		}
+
 		inline std::size_t mod(std::string_view name){
 			std::string n{name};
 
@@ -1123,6 +1125,10 @@ inline const std::string_view CXX_STD_FLAG =
 			auto [ix, ref] = mods.emplace(n, name);
 
 			return ix;
+		}
+
+		inline std::size_t modx(const std::string& name){
+			return mods.dict[name];
 		}
 
 		// TODO: Test these types (Ix, Path) to be accurate
@@ -1143,6 +1149,12 @@ inline const std::string_view CXX_STD_FLAG =
 
 		template<typename Ix>
 		inline void addDep(Ix ix, std::string_view dep){
+			mods[ix].deps.emplace_back(dep);
+		}
+
+		template<typename Ix>
+		inline void addFlagDep(Ix ix, std::string_view flag, std::string_view dep){
+			mods[ix].flags.emplace_back(flag);
 			mods[ix].deps.emplace_back(dep);
 		}
 
@@ -1170,6 +1182,10 @@ inline const std::string_view CXX_STD_FLAG =
 			auto [ix, ref] = stages.emplace(n, std::make_unique<T>(stage));
 
 			return ix;
+		}
+
+		inline std::size_t stagex(const std::string& name){
+			return stages.dict[name];
 		}
 
 		inline std::size_t transform(std::string_view name, std::string_view outext){
