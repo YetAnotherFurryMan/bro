@@ -67,6 +67,7 @@ inline const std::string_view CXX_COMPILER_NAME =
 	"g++"
 #else
 	"c++"
+#define BRO_NO_STD_FLAG
 #endif
 ;
 
@@ -78,6 +79,22 @@ inline const std::string_view C_COMPILER_NAME =
 	"gcc"
 #else
 	"cc"
+#endif
+;
+
+// Detect C++ std flag
+inline const std::string_view CXX_STD_FLAG = 
+#if defined(BRO_STD_FLAG)
+	BRO_STD_FLAG
+#elif defined(BRO_NO_STD_FLAG)
+	"-DBRO_NO_STD_FLAG"
+#elif __cplusplus < 202202L
+	"-std=c++17"
+#elif __cplusplus < 202302L
+	"-std=c++20"
+#else
+	// If version could not be detected, use the newest one.
+	"-std=c++23"
 #endif
 ;
 
@@ -974,6 +991,8 @@ inline const std::string_view C_COMPILER_NAME =
 			flags["ld"] = C_COMPILER_NAME;
 			flags["ar"] = "ar"; // TODO DELETE?
 			flags["build"] = "build";
+
+			flags["cxx_std_flag"] = CXX_STD_FLAG;
 		}
 
 		Bro(std::filesystem::path src = __builtin_FILE()):
@@ -1028,7 +1047,7 @@ inline const std::string_view C_COMPILER_NAME =
 				if(ret) std::exit(ret);
 				
 				// Recompile
-				Cmd cmd({String(flags["cxx"]), "-o", exe.path(), src.path()});
+				Cmd cmd({String(flags["cxx"]), "-o", exe.path(), src.path(), "-Wall", "-Wextra", String{flags["cxx_std_flag"]}});
 				if((ret = cmd.sync(log))){
 					log.error("Failed to recompile source: {}", src);
 					std::exit(ret);
@@ -1039,7 +1058,7 @@ inline const std::string_view C_COMPILER_NAME =
 				cmd.cmd.emplace_back(exe.path());
 				for(const auto& [name, value]: flags){
 					if(name[0] != '~')
-						cmd.cmd.push_back(std::string{name} + "=" + std::string(value));
+						cmd.cmd.emplace_back(std::string{name} + "=" + std::string(value));
 				}
 
 				int status = cmd.sync(log);
